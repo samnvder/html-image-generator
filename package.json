@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "description": "Deterministic print-ready image/PDF generator: LLM-authored HTML/CSS at exact physical dimensions, rendered by headless Chromium.",
   "type": "module",
+  "license": "MIT",
+  "author": "Sam Nader",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samnvder/html-image-generator.git"
+  },
   "private": true,
   "engines": {
     "node": ">=20"

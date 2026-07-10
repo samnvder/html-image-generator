@@ -114,4 +114,10 @@ outputs/               renders (gitignored)
 
 Phases 0–3 complete — the MVP. Phase 4 (optional Ghostscript CMYK / PDF-X) and Phase 5 (print and measure) are in [`BUILD_PLAN.md`](BUILD_PLAN.md).
 
+## License
+
+The code is [MIT](LICENSE).
+
+The bundled fonts are **not** — they are SIL Open Font License 1.1, and that license travels with them. Full texts are in [`fonts/licenses/`](fonts/licenses). MIT covers what's in `scripts/`, `server/`, `templates/`, and `jobs/`; it does not relicense the `.woff2` and `.ttf` files.
+
 Design rationale is in [`INITIAL_BLUEPRINT.md`](INITIAL_BLUEPRINT.md); the cited toolchain research, including four refuted claims, is in [`RESEARCH_REPORT.md`](RESEARCH_REPORT.md).
