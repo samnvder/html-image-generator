@@ -1,6 +1,6 @@
 # Handoff — HTML Image Generator
 
-*Written 2026-07-09. Read this first. Everything below is planning; **no code has been written yet.***
+*Written 2026-07-09, current as of 2026-07-10. Read this first. **Phases 0–3, 6 and 7 are built, green, and in CI**; Phases 4 and 5 remain planning. The "facts that will bite you" at the bottom are the expensive part.*
 
 ---
 
