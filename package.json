@@ -16,11 +16,12 @@
   "scripts": {
     "start": "node server/index.js",
     "render": "node scripts/render.js",
-    "test": "node scripts/validatetest.js && node scripts/selftest.js && node scripts/templatetest.js && node scripts/fonttest.js && node scripts/apptest.js",
+    "test": "node scripts/validatetest.js && node scripts/selftest.js && node scripts/templatetest.js && node scripts/fonttest.js && node scripts/presstest.js && node scripts/apptest.js",
     "validatetest": "node scripts/validatetest.js",
     "selftest": "node scripts/selftest.js",
     "templatetest": "node scripts/templatetest.js",
     "fonttest": "node scripts/fonttest.js",
+    "presstest": "node scripts/presstest.js",
     "apptest": "node scripts/apptest.js",
     "fetch-fonts": "node scripts/fetch-fonts.js"
   },

@@ -6,6 +6,7 @@
 
 import { promises as fs } from 'node:fs';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFStream } from 'pdf-lib';
 
 export async function pdfInfo(file) {
   const task = getDocument({ data: new Uint8Array(await fs.readFile(file)), useSystemFonts: true });
@@ -35,3 +36,62 @@ export function inspectFonts(buf) {
 }
 
 export const isSubsetted = (name) => Boolean(name && /^[A-Z]{6}\+/.test(name));
+
+// Everything the regex above cannot see.
+//
+// Chromium writes no object streams, which is why `inspectFonts()` works at all. A
+// Ghostscript PDF/X-4 conversion is PDF 1.6, where Ghostscript DOES write them, and the
+// font descriptors vanish inside an /ObjStm. pdf-lib decodes object streams, so this
+// walks the real object graph instead of the bytes.
+//
+// Also returns the structures that make a PDF/X claim true or false: the output intent,
+// the ICC profile it points at, the XMP identification, and page 1's TrimBox.
+export async function inspectPdfDeep(buf) {
+  const doc = await PDFDocument.load(buf, { updateMetadata: false, throwOnInvalidObject: false });
+
+  const fonts = new Set();
+  let embedded = 0;
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    // Not `obj.dict ?? obj`: a PDFDict's own `.dict` is its internal Map, so that
+    // spelling silently skips every dictionary in the file.
+    const dict = obj instanceof PDFStream ? obj.dict : obj;
+    if (!(dict instanceof PDFDict)) continue;
+    const base = dict.get(PDFName.of('BaseFont'));
+    if (base) fonts.add(String(base).replace(/^\//, ''));
+    for (const key of ['FontFile', 'FontFile2', 'FontFile3']) {
+      if (dict.get(PDFName.of(key))) embedded++;
+    }
+  }
+
+  let outputIntent = null;
+  const intents = doc.catalog.lookupMaybe(PDFName.of('OutputIntents'), PDFArray);
+  if (intents && intents.size() > 0) {
+    const first = intents.lookup(0, PDFDict);
+    const profile = first.lookup(PDFName.of('DestOutputProfile'));
+    outputIntent = {
+      subtype: String(first.get(PDFName.of('S')) ?? ''),
+      identifier: String(first.lookup(PDFName.of('OutputConditionIdentifier')) ?? ''),
+      // /N is the profile's component count. A press intent must be four-channel.
+      destOutputProfileN: profile ? Number(profile.dict?.get(PDFName.of('N'))?.asNumber?.() ?? NaN) : null,
+    };
+  }
+
+  let xmp = '';
+  const meta = doc.catalog.lookup(PDFName.of('Metadata'));
+  if (meta?.contents) xmp = Buffer.from(meta.contents).toString('utf8');
+
+  const page = doc.getPage(0).node;
+  const raw = buf.toString('latin1');
+
+  return {
+    version: raw.slice(0, 8),                              // "%PDF-1.4"
+    fonts: [...fonts],
+    embedded,
+    objStreams: (raw.match(/\/ObjStm/g) ?? []).length,
+    outputIntent,
+    xmp,
+    hasTrimBox: Boolean(page.get(PDFName.of('TrimBox'))),
+    deviceRgb: (raw.match(/\/DeviceRGB/g) ?? []).length,
+    deviceCmyk: (raw.match(/\/DeviceCMYK/g) ?? []).length,
+  };
+}
