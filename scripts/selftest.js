@@ -96,13 +96,62 @@ try {
   check('Probe B: probe body rendered', bodyOk);
   console.log(`  INFO  Probe B verdict: native @page margin boxes ${native ? 'SUPPORTED — Paged.js not needed for headers/footers' : 'NOT supported — use Paged.js string-set for running headers'}`);
 
-  // Paged.js path smoke test — bleed + crop marks must grow the sheet past 612x792.
+  // A1 — a bleed job asks for two different documents. The PDF gets the Paged.js
+  // composition (sheet grows past trim); the PNG must be the plain screen render.
+  // Before the fix, the PNG captured the polyfill-restructured DOM: content shifted
+  // by the bleed offset, corner markers pulled inward, sheet edge visible.
+  const bleedContent = { title: 'Selftest — Bleed', note: 'Paged.js path' };
   const bleedOut = await renderJob({
     ...base, name: 'selftest-bleed', bleed: '0.125in', cropMarks: true,
-    content: { title: 'Selftest — Bleed', note: 'Paged.js path' },
+    outputs: ['pdf', 'png'], content: bleedContent,
   }, { browser, autoOpen: false });
-  const bp = await pdfInfo(bleedOut[0].path);
+  const bp = await pdfInfo(bleedOut.find((r) => r.format === 'pdf').path);
   check('Paged.js path: bleed/marks sheet larger than trim', bp.width > 612 && bp.height > 792, `${bp.width}x${bp.height}`);
+
+  const controlOut = await renderJob({
+    ...base, name: 'selftest-bleed-control', outputs: ['png'], content: bleedContent,
+  }, { browser, autoOpen: false });
+
+  const bleedPng = bleedOut.find((r) => r.format === 'png').path;
+  const controlPng = controlOut[0].path;
+  const [bleedMeta, controlMeta] = await Promise.all([sharp(bleedPng).metadata(), sharp(controlPng).metadata()]);
+  check('A1: bleed PNG is still trim size (2550x3300)',
+    bleedMeta.width === 2550 && bleedMeta.height === 3300, `${bleedMeta.width}x${bleedMeta.height}`);
+
+  // The audit's probe, made permanent. Chromium's rasterizer is not bit-exact across
+  // processes, so this is a pixel-equivalence bound, not a hash. Pre-fix this measured
+  // 1.1% of subpixels differing against a 0.0001% noise floor.
+  const [bleedRaw, controlRaw] = await Promise.all([sharp(bleedPng).raw().toBuffer(), sharp(controlPng).raw().toBuffer()]);
+  let differing = 0;
+  let maxDelta = 0;
+  if (bleedRaw.length === controlRaw.length) {
+    for (let i = 0; i < bleedRaw.length; i++) {
+      const d = Math.abs(bleedRaw[i] - controlRaw[i]);
+      if (d) { differing++; if (d > maxDelta) maxDelta = d; }
+    }
+  } else {
+    differing = Infinity;
+  }
+  const ratio = differing / bleedRaw.length;
+  check('A1: bleed PNG is pixel-equivalent to the no-bleed PNG (<0.01% subpixels, delta <= 2)',
+    ratio < 0.0001 && maxDelta <= 2,
+    `${differing} subpixels differ (${(ratio * 100).toFixed(5)}%), max delta ${maxDelta}`);
+
+  // A2 — content is text, not markup. {{key}} escapes; {{{key}}} is the explicit opt-in.
+  const escapeOut = await renderJob({
+    name: 'selftest-escape', project: 'Demo', docType: 'probe',
+    paperSize: 'letter', margin: '0', template: '_escape.html',
+    content: {
+      plain: '<b>bold?</b>',
+      angle: 'use <Enter> to continue',
+      raw: '<b>MARKUP</b>',
+    },
+  }, { browser, autoOpen: false });
+  // pdfjs emits one item per glyph run, so compare with whitespace removed.
+  const esc = (await pdfInfo(escapeOut[0].path)).text.replace(/\s+/g, '');
+  check('A2: {{key}} renders tags literally', esc.includes('<b>bold?</b>'), esc.slice(0, 120));
+  check('A2: text like "use <Enter> to continue" survives intact', esc.includes('use<Enter>tocontinue'), esc.slice(0, 120));
+  check('A2: {{{key}}} renders as markup', esc.includes('MARKUP') && !esc.includes('<b>MARKUP</b>'), esc.slice(0, 120));
 } finally {
   await browser.close();
 }

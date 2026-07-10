@@ -81,10 +81,12 @@ Note what happened: thirteen decisions were made *for* the user and shown for co
 - **Running headers and footers use native `@page` margin boxes** (`@top-left`, `@bottom-center`, `counter(page)`). Verified working in Chrome 148. You do not need Paged.js for these.
 - **Flowing multi-page templates are PDF-only.** A screenshot has no page breaks. Set `outputs: ["pdf"]`.
 - **`{{placeholder}}`** is the substitution syntax. Image slots use `{{image:slotname}}`. Unfilled placeholders survive into the output and log a warning — they are meant to be visible, not silent.
+- **Content is text, not markup.** `{{key}}` HTML-escapes its value, so `use <Enter> to submit` reaches the page as those exact characters and a stray `<b>` never becomes an element. Escaping is attribute-safe, so `src="{{image:slot}}"` works unchanged. When a value is *meant* to be markup, ask for it explicitly with the triple-stache **`{{{key}}}`**.
 
 ## Facts that will bite you
 
 - **Paged.js is only engaged for bleed and crop marks.** Everything else — exact size, orientation, margins, page counters, running heads — is native Chromium. Do not reach for the polyfill by reflex.
+- **A bleed job renders two different documents.** The PDF gets the Paged.js composition; the PNG is composed again without it, because bleed and crop marks are print concepts and the PNG is a trim-size screen render. Never screenshot the paged DOM.
 - **Chromium writes no DPI metadata into PNGs.** The renderer's `sharp` post-step stamps the `pHYs` chunk. Never hand-roll a screenshot path that skips it, or Photoshop will read the file as 72 DPI.
 - **Project and doc-type names become filesystem paths.** They are slugified and validated; path traversal and Windows reserved names (`CON`, `NUL`, `COM1`…) are rejected outright. Don't route around this.
 - **Both WOFF2 and TTF embed and subset identically** in Chromium PDFs (verified — `scripts/fonttest.js`). Prefer WOFF2; the files are smaller.

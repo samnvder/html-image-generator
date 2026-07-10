@@ -73,24 +73,48 @@ function needsPagedJs(spec) {
   return spec.cropMarks || (spec.bleed && spec.bleed !== '0' && spec.bleed !== '0in');
 }
 
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
+// {{{key}}} before {{key}}, in one pass — a raw value that happens to contain
+// "{{" must not be re-substituted by a second sweep.
+const PLACEHOLDER = /\{\{\{([\w:.-]+)\}\}\}|\{\{([\w:.-]+)\}\}/g;
+
+// Content is text, not markup. `use <Enter> to submit` must survive to the page as
+// those exact characters, and a stray `<b>` must never become an element. Templates
+// that genuinely want markup from a value ask for it with {{{key}}}.
+// Escaping is attribute-safe, so {{image:slot}} inside src="…" keeps working.
+export function substitutePlaceholders(html, values) {
+  const unfilled = new Set();
+  const out = html.replace(PLACEHOLDER, (match, rawKey, escKey) => {
+    const key = rawKey ?? escKey;
+    if (!(key in values)) { unfilled.add(key); return match; }
+    return rawKey !== undefined ? values[key] : escapeHtml(values[key]);
+  });
+  return { html: out, unfilled: [...unfilled] };
+}
+
 // opts.preview — the live preview always runs the polyfill, because it needs
 // discrete page boxes on screen even when the print path is native. It also gets
 // screen-only chrome (a backdrop and a drop shadow) that never touches a render.
+//
+// opts.screen — never run the polyfill, whatever the spec says. The PNG is a
+// trim-size screen render: bleed and crop marks are print concepts, and letting
+// Paged.js restructure the DOM shifts the content by the bleed offset and leaves a
+// sliver of the sheet edge in the shot.
 export async function composeDocument(spec, opts = {}) {
   const templatePath = path.join(PROJECT_ROOT, 'templates', spec.template);
-  let html = await fs.readFile(templatePath, 'utf8');
+  const source = await fs.readFile(templatePath, 'utf8');
 
   const values = { ...spec.content };
   for (const [slot, src] of Object.entries(spec.imageSlots)) values[`image:${slot}`] = src;
-  html = html.replace(/\{\{([\w:.-]+)\}\}/g, (m, key) => (key in values ? values[key] : m));
-
-  const leftover = [...html.matchAll(/\{\{([\w:.-]+)\}\}/g)].map((m) => m[1]);
-  if (leftover.length) {
-    console.warn(`[render] unfilled placeholders left in document: ${[...new Set(leftover)].join(', ')}`);
+  let { html, unfilled } = substitutePlaceholders(source, values);
+  if (unfilled.length) {
+    console.warn(`[render] unfilled placeholders left in document: ${unfilled.join(', ')}`);
   }
 
   const dims = pageDims(spec);
-  const paged = opts.preview || needsPagedJs(spec);
+  const paged = opts.preview || (!opts.screen && needsPagedJs(spec));
   const pagedCss = paged
     ? `bleed: ${spec.bleed === '0' ? '0in' : spec.bleed};${spec.cropMarks ? ' marks: crop;' : ''}`
     : '';
@@ -134,7 +158,7 @@ export async function composeDocument(spec, opts = {}) {
   } else {
     html = setup + previewChrome + pagedScripts + html;
   }
-  return { html, paged };
+  return { html, paged, unfilled };
 }
 
 // Throwaway static server rooted at the project dir, with the composed document at /__doc__.html
@@ -203,7 +227,7 @@ async function renderPng(page, url, spec) {
 // rather than a hand-drawn approximation that can drift from reality.
 export async function renderPngBuffer(rawSpec, browser, { dpi = 48 } = {}) {
   const spec = { ...applyDefaults(rawSpec), dpi };
-  const { html } = await composeDocument(spec);
+  const { html } = await composeDocument(spec, { screen: true });
   const doc = await serveDocument(html);
   try {
     const page = await browser.newPage();
@@ -212,6 +236,16 @@ export async function renderPngBuffer(rawSpec, browser, { dpi = 48 } = {}) {
     } finally {
       await page.close();
     }
+  } finally {
+    await doc.close();
+  }
+}
+
+// Serve one composition, hand its URL to fn, then tear the server down.
+async function withDocument(html, fn) {
+  const doc = await serveDocument(html);
+  try {
+    return await fn(doc.url);
   } finally {
     await doc.close();
   }
@@ -228,31 +262,31 @@ export async function renderJob(rawSpec, opts = {}) {
     // A variant's overrides can be just as wrong as a base spec's. Validate each.
     const runs = [spec, ...spec.variants.map((v) => assertValidSpec({ ...spec, ...v, variants: [] }))];
     for (const run of runs) {
-      const { html, paged } = await composeDocument(run);
-      const doc = await serveDocument(html);
-      try {
-        if (run.outputs.includes('pdf')) {
+      // The two outputs are two different documents whenever the job asks for bleed
+      // or crop marks: the PDF gets the Paged.js composition, the PNG never does.
+      if (run.outputs.includes('pdf')) {
+        const { html, paged } = await composeDocument(run);
+        const pdf = await withDocument(html, async (url) => {
           const page = await browser.newPage();
-          const pdf = await renderPdf(page, doc.url, paged);
-          await page.close();
-          const out = await resolveOutputPath(run, 'pdf', when);
-          await fs.writeFile(out, pdf);
-          await writeLatest(out);
-          results.push({ format: 'pdf', path: out });
-        }
-        if (run.outputs.includes('png')) {
-          // Screen render — Paged.js and @page margins don't apply; templates size
-          // themselves with --page-width/--page-height/--page-margin.
+          try { return await renderPdf(page, url, paged); } finally { await page.close(); }
+        });
+        const out = await resolveOutputPath(run, 'pdf', when);
+        await fs.writeFile(out, pdf);
+        await writeLatest(out);
+        results.push({ format: 'pdf', path: out });
+      }
+      if (run.outputs.includes('png')) {
+        // Screen render — no polyfill, no @page. Templates size themselves with
+        // --page-width/--page-height/--page-margin.
+        const { html } = await composeDocument(run, { screen: true });
+        const png = await withDocument(html, async (url) => {
           const page = await browser.newPage();
-          const png = await renderPng(page, doc.url, run);
-          await page.close();
-          const out = await resolveOutputPath(run, 'png', when);
-          await fs.writeFile(out, png);
-          await writeLatest(out);
-          results.push({ format: 'png', path: out });
-        }
-      } finally {
-        await doc.close();
+          try { return await renderPng(page, url, run); } finally { await page.close(); }
+        });
+        const out = await resolveOutputPath(run, 'png', when);
+        await fs.writeFile(out, png);
+        await writeLatest(out);
+        results.push({ format: 'png', path: out });
       }
     }
   } finally {

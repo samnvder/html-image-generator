@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>escape fixture</title>
+<style>
+  body { margin: 0; font-family: Arial, sans-serif; font-size: 18pt; }
+  .page { width: var(--page-width); height: var(--page-height); box-sizing: border-box; padding: 0.75in; background: #fff; }
+  p { margin: 0 0 0.4in; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <!-- Double-stache is text: these must reach the page as literal characters. -->
+    <p>{{plain}}</p>
+    <p>{{angle}}</p>
+    <!-- Triple-stache is deliberate markup: the tags must become elements. -->
+    <p>{{{raw}}}</p>
+  </div>
+</body>
+</html>
