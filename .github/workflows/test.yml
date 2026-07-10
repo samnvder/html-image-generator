@@ -9,9 +9,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -22,11 +22,48 @@ jobs:
       # --no-sandbox through five launch sites.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      # The core app never requires Ghostscript, and presstest self-skips without it.
+      # A suite that skips everywhere proves nothing, so CI installs it and the last
+      # step below refuses to pass if the conversion did not actually run.
+      - run: sudo apt-get update && sudo apt-get install -y ghostscript
+
+      # Ghostscript ships a generic four-channel CMYK profile. It exercises the whole
+      # PDF/X-4 path — output intent embedded, identification written, text still vector
+      # — and proves the plumbing. It is NOT a press characterization; a real job wants
+      # GRACoL2013 or SWOP, which we may not redistribute. See assets/icc/README.md.
+      - name: point HIG_ICC_PROFILE at Ghostscript's own CMYK profile
+        run: |
+          icc=$(find /usr/share/color/icc /usr/share/ghostscript /usr/lib/ghostscript \
+                     -name 'default_cmyk.icc' -print -quit 2>/dev/null || true)
+          if [ -z "$icc" ]; then
+            echo "No default_cmyk.icc found — the PDF/X-4 block would silently skip." >&2
+            exit 1
+          fi
+          echo "HIG_ICC_PROFILE=$icc" >> "$GITHUB_ENV"
+
       # Puppeteer downloads its own Chromium on install. Fonts are committed.
       - run: npm ci
 
       # The suite renders into a temp dir (HIG_OUTPUTS_ROOT), so it leaves the tree clean.
-      - run: npm test
+      # *.log is gitignored, so tee-ing here does not dirty it either.
+      - name: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+
+      # A green presstest that skipped is indistinguishable from a green presstest that
+      # ran. Name the assertions that only exist on the conversion path, and demand them.
+      - name: presstest must have exercised the conversion path, not skipped it
+        run: |
+          set -e
+          grep -qF 'presstest: Ghostscript present — conversion path EXERCISED.' test.log
+          grep -qF 'PASS  cmyk: the text is unchanged — Ghostscript did not rasterize the page' test.log
+          grep -qF 'PASS  cmyk: every font is still embedded and subsetted' test.log
+          grep -qF 'PASS  pdfx: the catalog carries /OutputIntents with subtype /GTS_PDFX' test.log
+          grep -qF 'PASS  pdfx: the XMP carries the pdfxid identification PDF/X-4 conformance requires' test.log
+          grep -qF 'PASS  pdfx: all four fonts are STILL embedded and subsetted' test.log
+          grep -qF 'PASS  cmyk job: the PDF deliverable IS the converted file, converted in place' test.log
+          ! grep -qF 'conversion path SKIPPED' test.log
 
       - name: the tests must not dirty the working tree
         run: git diff --exit-code && test -z "$(git status --porcelain)"
