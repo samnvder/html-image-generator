@@ -390,7 +390,11 @@ async function refreshCapabilities() {
   const note = $('#press-note');
 
   cmyk.disabled = !caps.press;
-  if (!caps.press) {
+  if (caps.reason === 'too-old') {
+    form.colorIntent.value = 'rgb';
+    note.textContent = `CMYK needs Ghostscript ${caps.minGhostscript} or newer; this machine has ${caps.version}. `
+      + 'Older builds cannot write PDF/X-4 and leave RGB blending spaces in a CMYK file.';
+  } else if (!caps.press) {
     form.colorIntent.value = 'rgb';
     note.textContent = 'CMYK needs Ghostscript, which isn\'t installed. Install it (or set HIG_GS) and reload.';
   } else if (!caps.icc) {

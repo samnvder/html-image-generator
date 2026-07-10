@@ -17,7 +17,7 @@ import {
   PROJECT_ROOT, getOutputsRoot, outputDirFor, slugify, isInside, toOutputsUrlPath, fromOutputsUrlPath,
 } from '../scripts/paths.js';
 import { validateSpec } from '../scripts/validate.js';
-import { PDFX_LEVEL, findIccProfile, isPressAvailable } from '../scripts/press.js';
+import { MIN_GS_VERSION, pressCapability } from '../scripts/press.js';
 import { listTemplates } from '../scripts/templates.js';
 import { ensureThumbnails, THUMB_DIR } from '../scripts/thumbs.js';
 
@@ -89,9 +89,8 @@ app.get('/api/schema', async () => JSON.parse(await fs.readFile(path.join(PROJEC
 // disable the CMYK control rather than to validate anything — the enum lives in
 // validate.js, the environment check lives in renderJob().
 app.get('/api/capabilities', async () => {
-  const press = isPressAvailable();
-  const icc = press ? Boolean(findIccProfile()) : false;
-  return { press, icc, pdfx: icc ? PDFX_LEVEL : null };
+  const { press, reason, version, icc, pdfx } = await pressCapability();
+  return { press, reason, version, icc: Boolean(icc), pdfx, minGhostscript: MIN_GS_VERSION };
 });
 
 // Each entry carries the template's declared config (paper, orientation, margin)

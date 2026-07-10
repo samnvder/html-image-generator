@@ -8,7 +8,7 @@
 //   HIG_GS            explicit path to the binary; the literal "0" forces "absent"
 //   HIG_ICC_PROFILE   explicit path to a CMYK ICC profile; "0" forces "none"
 //
-// Two facts, measured against Ghostscript 10.07.1 (see RESEARCH_REPORT §5):
+// Three facts, each measured against a real binary (see RESEARCH_REPORT §5):
 //
 //   1. `-dPDFX` (i.e. PDF/X-1a or X-3) clamps CompatibilityLevel to PDF 1.3, which has
 //      no transparency. Any page with an rgba() colour or a gradient scrim — which is
@@ -17,10 +17,20 @@
 //      is a 600-dpi raster is an A1-class bug shipped as a feature.
 //   2. `-dPDFX=4` forces PDF 1.6, preserves live transparency, keeps the text vector,
 //      and writes the XMP `pdfxid:GTS_PDFXVersion` that PDF/X-4 identification requires.
+//      It exists only from Ghostscript 10.05.0: before that `PDFX` is a *boolean*, and
+//      `-dPDFX=4` dies with `/typecheck in --pdfmark--`.
+//   3. Ghostscript before 10.05 also leaves `/Group << /CS /DeviceRGB >>` — the
+//      transparency blending space — untouched when converting to CMYK. The objects are
+//      DeviceCMYK; the compositing still happens in RGB.
 //
-// So: PDF/X-4 is the level this tool claims, and only when a profile is present. The
-// cost is that PDF 1.6 lets Ghostscript write object streams, so a converted PDF/X-4
-// file is not regex-inspectable — use pdfinfo.js's `inspectFontsDeep()` on it.
+// Hence MIN_GS_VERSION. An older Ghostscript cannot produce PDF/X at all and cannot
+// produce a fully CMYK file, so for press purposes it is not Ghostscript: a cmyk job
+// meets the same hard error it meets on a machine with none. Burying that in warnings[]
+// would be the RGB fallback wearing a hat.
+//
+// PDF/X-4 is therefore the level this tool claims, and only when a profile is present.
+// The cost is that PDF 1.6 lets Ghostscript write object streams, so a converted PDF/X-4
+// file is not regex-inspectable — use pdfinfo.js's `inspectPdfDeep()` on it.
 //
 // Without a profile there is no honest output intent to embed, so we do a plain CMYK
 // conversion at PDF 1.4 (no object streams) and say so in warnings[]. We never stamp a
@@ -44,11 +54,36 @@ const GS_PROGRAM_DIRS = ['C:\\Program Files\\gs', 'C:\\Program Files (x86)\\gs']
 
 export const PDFX_LEVEL = 'PDF/X-4';
 
+// -dPDFX=4 landed in 10.05.0. Before it, PDFX is a boolean meaning PDF/X-3.
+export const MIN_GS_VERSION = '10.05.0';
+
 export const NO_ICC_WARNING =
   'colorIntent "cmyk": converted to DeviceCMYK, but no ICC profile was found, so no '
   + 'output intent was embedded — this is a CMYK PDF, not PDF/X. See assets/icc/README.md.';
 
-export function ghostscriptMissingMessage() {
+// "1.2.3" -> [1, 2, 3]; missing components count as 0, so 10.05 === 10.05.0.
+const parts = (v) => String(v).trim().split('.').map((n) => Number.parseInt(n, 10) || 0);
+
+export function compareVersions(a, b) {
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return Math.sign(d);
+  }
+  return 0;
+}
+
+export const isVersionSupported = (version) => Boolean(version) && compareVersions(version, MIN_GS_VERSION) >= 0;
+
+// One message per way of not having a usable Ghostscript. Both name the fix; neither
+// leaves "render it as RGB anyway" on the table.
+export function pressUnavailableMessage({ reason, version, gs }) {
+  if (reason === 'too-old') {
+    return `colorIntent "cmyk" requires Ghostscript ${MIN_GS_VERSION} or newer; found ${version} at ${gs}. `
+      + 'Older builds cannot write PDF/X-4 (their -dPDFX means PDF/X-3, which flattens the page to a bitmap) '
+      + 'and leave RGB transparency-blending spaces inside a CMYK file. '
+      + 'Upgrade Ghostscript, point HIG_GS at a newer binary, or render with colorIntent "rgb".';
+  }
   const hint = IS_WINDOWS
     ? 'install Ghostscript (https://ghostscript.com/releases/) — its binary is gswin64c.exe'
     : 'install Ghostscript (apt-get install ghostscript, brew install ghostscript)';
@@ -84,7 +119,39 @@ export function findGhostscript() {
   return null;
 }
 
-export const isPressAvailable = () => findGhostscript() !== null;
+// Version lookup costs a process spawn, so memoize it per binary. A binary does not
+// change version mid-process; the tests swap HIG_GS, and the cache is keyed on the
+// resolved path, so they never see a stale answer.
+const versionCache = new Map();
+
+export async function ghostscriptVersion(gs = findGhostscript()) {
+  if (!gs) return null;
+  if (versionCache.has(gs)) return versionCache.get(gs);
+  const { stdout } = await execFileAsync(gs, ['--version'], { timeout: 30_000, windowsHide: true });
+  const version = stdout.trim();
+  versionCache.set(gs, version);
+  return version;
+}
+
+// Everything a caller needs to decide what it may promise:
+//   { press, reason, gs, version, icc, pdfx }
+export async function pressCapability() {
+  const gs = findGhostscript();
+  if (!gs) return { press: false, reason: 'not-found', gs: null, version: null, icc: null, pdfx: null };
+
+  let version = null;
+  try { version = await ghostscriptVersion(gs); } catch { /* an unrunnable binary is an absent one */ }
+  if (!isVersionSupported(version)) {
+    return { press: false, reason: version ? 'too-old' : 'not-found', gs, version, icc: null, pdfx: null };
+  }
+
+  const icc = findIccProfile();
+  return { press: true, reason: null, gs, version, icc, pdfx: icc ? PDFX_LEVEL : null };
+}
+
+export async function isPressAvailable() {
+  return (await pressCapability()).press;
+}
 
 // The ICC slot. assets/icc/ is gitignored except its README — no profile ships with
 // this repo, because none of the US press profiles permit redistribution outright.
@@ -94,13 +161,6 @@ export function findIccProfile() {
   if (override) return existsSync(override) ? path.resolve(override) : null;
   const slot = path.join(PROJECT_ROOT, 'assets', 'icc', 'press.icc');
   return existsSync(slot) ? slot : null;
-}
-
-export async function ghostscriptVersion() {
-  const gs = findGhostscript();
-  if (!gs) return null;
-  const { stdout } = await execFileAsync(gs, ['--version'], { timeout: 30_000 });
-  return stdout.trim();
 }
 
 // PostScript string literals escape `(`, `)` and `\`. Ghostscript accepts forward
@@ -176,8 +236,9 @@ function gsArgs({ input, output, icc, defPs }) {
 // truncated file behind when it errors out (a 1.4 KB stub, observed), and a partial
 // PDF at the deliverable path is worse than no file at all.
 export async function convertToCmyk(pdfIn, pdfOut, { icc = findIccProfile() } = {}) {
-  const gs = findGhostscript();
-  if (!gs) throw new Error(ghostscriptMissingMessage());
+  const capability = await pressCapability();
+  if (!capability.press) throw new Error(pressUnavailableMessage(capability));
+  const gs = capability.gs;
 
   const warnings = [];
   let workDir;
@@ -198,8 +259,16 @@ export async function convertToCmyk(pdfIn, pdfOut, { icc = findIccProfile() } = 
     });
   } catch (err) {
     await fs.rm(pdfOut, { force: true });
-    const detail = String(err.stderr || err.stdout || err.message).trim().split('\n').slice(-4).join(' ');
-    throw new Error(`Ghostscript failed to convert to CMYK: ${detail}`);
+    // Ghostscript reports the *cause* (an /invalidfileaccess, an unknown switch, a
+    // PostScript error in the prologue) several lines above the "Unrecoverable error"
+    // it exits on, and it splits itself across stdout and stderr. Keep enough of both
+    // to diagnose without re-running.
+    const detail = [err.stdout, err.stderr, err.message]
+      .filter(Boolean).join('\n').split('\n')
+      .map((l) => l.trim()).filter(Boolean)
+      .filter((l) => !/^(Copyright|This software|see the file COPYING|GPL Ghostscript \d)/.test(l))
+      .slice(-10).join('\n  ');
+    throw new Error(`Ghostscript failed to convert to CMYK:\n  ${detail}`);
   } finally {
     if (workDir) await fs.rm(workDir, { recursive: true, force: true });
   }

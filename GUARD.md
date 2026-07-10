@@ -84,6 +84,9 @@ spec. Ask for it when the user says "press", "printer" (the company, not the dev
 - **No Ghostscript, no render.** `cmyk` on a machine without it is a hard error thrown
   before Chromium starts and before any file is written, naming the fix. There is no RGB
   fallback: an RGB file shipped as press output is a wasted print run, and a silent one.
+- **Ghostscript 10.05.0 is the minimum**, and an older one is refused the same way. Before
+  10.05 there is no `-dPDFX=4`, and the conversion leaves RGB transparency-blending spaces
+  inside a CMYK file. Ubuntu 24.04's `apt-get install ghostscript` gives you 10.02.1.
 - **With an ICC profile** at `assets/icc/press.icc` (or `HIG_ICC_PROFILE`) the output is
   **PDF/X-4**, with the profile embedded as the output intent. **Without one** it is a
   plain CMYK PDF, and `warnings[]` says exactly that. The tool never claims a PDF/X

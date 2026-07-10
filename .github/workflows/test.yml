@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # -dPDFX=4 arrived in Ghostscript 10.05.0. Ubuntu 24.04's apt ships 10.02.1, where
+  # PDFX is a boolean: -dPDFX=4 dies with "/typecheck in --pdfmark--", and a plain CMYK
+  # conversion leaves /Group << /CS /DeviceRGB >> behind. So we build the version the
+  # product actually supports rather than testing against one it refuses to use.
+  GS_VERSION: 10.07.1
+  GS_TAG: gs10071
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -22,23 +30,40 @@ jobs:
       # --no-sandbox through five launch sites.
       - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      # The core app never requires Ghostscript, and presstest self-skips without it.
-      # A suite that skips everywhere proves nothing, so CI installs it and the last
-      # step below refuses to pass if the conversion did not actually run.
-      - run: sudo apt-get update && sudo apt-get install -y ghostscript
+      - name: cache Ghostscript ${{ env.GS_VERSION }}
+        id: gs-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/gs
+          key: ghostscript-${{ env.GS_VERSION }}-${{ runner.os }}
 
-      # Ghostscript ships a generic four-channel CMYK profile. It exercises the whole
-      # PDF/X-4 path — output intent embedded, identification written, text still vector
-      # — and proves the plumbing. It is NOT a press characterization; a real job wants
-      # GRACoL2013 or SWOP, which we may not redistribute. See assets/icc/README.md.
-      - name: point HIG_ICC_PROFILE at Ghostscript's own CMYK profile
+      - name: build Ghostscript ${{ env.GS_VERSION }}
+        if: steps.gs-cache.outputs.cache-hit != 'true'
         run: |
-          icc=$(find /usr/share/color/icc /usr/share/ghostscript /usr/lib/ghostscript \
-                     -name 'default_cmyk.icc' -print -quit 2>/dev/null || true)
-          if [ -z "$icc" ]; then
-            echo "No default_cmyk.icc found — the PDF/X-4 block would silently skip." >&2
-            exit 1
-          fi
+          set -euo pipefail
+          curl -fsSL -o gs.tar.xz \
+            "https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/${GS_TAG}/ghostscript-${GS_VERSION}.tar.xz"
+          tar xf gs.tar.xz
+          cd "ghostscript-${GS_VERSION}"
+          ./configure --prefix="$HOME/gs" --without-x --disable-cups --disable-gtk --without-tesseract
+          make -j"$(nproc)"
+          make install
+          # The output intent needs an ICC file on disk. Ghostscript's own generic CMYK
+          # profile exercises the whole PDF/X-4 path — intent embedded, identification
+          # written, text still vector — and proves the plumbing. It is NOT a press
+          # characterization; a real job wants GRACoL2013 or SWOP, which we may not
+          # redistribute. See assets/icc/README.md.
+          cp -r iccprofiles "$HOME/gs/iccprofiles"
+
+      - name: point the suite at it
+        run: |
+          set -euo pipefail
+          gs="$HOME/gs/bin/gs"
+          test -x "$gs"
+          "$gs" --version
+          icc=$(find "$HOME/gs" -name 'default_cmyk.icc' -print -quit)
+          test -n "$icc"
+          echo "HIG_GS=$gs" >> "$GITHUB_ENV"
           echo "HIG_ICC_PROFILE=$icc" >> "$GITHUB_ENV"
 
       # Puppeteer downloads its own Chromium on install. Fonts are committed.
@@ -59,6 +84,7 @@ jobs:
           grep -qF 'presstest: Ghostscript present — conversion path EXERCISED.' test.log
           grep -qF 'PASS  cmyk: the text is unchanged — Ghostscript did not rasterize the page' test.log
           grep -qF 'PASS  cmyk: every font is still embedded and subsetted' test.log
+          grep -qF 'PASS  cmyk: no object in the file still declares an RGB colour space' test.log
           grep -qF 'PASS  pdfx: the catalog carries /OutputIntents with subtype /GTS_PDFX' test.log
           grep -qF 'PASS  pdfx: the XMP carries the pdfxid identification PDF/X-4 conformance requires' test.log
           grep -qF 'PASS  pdfx: all four fonts are STILL embedded and subsetted' test.log

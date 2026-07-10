@@ -22,7 +22,7 @@ import { PDFDocument } from 'pdf-lib';
 import {
   PAPER_SIZES, PROJECT_ROOT, isInside, outputKey, resolveOutputPath, writeLatest,
 } from './paths.js';
-import { convertToCmyk, ghostscriptMissingMessage, isPressAvailable } from './press.js';
+import { convertToCmyk, pressCapability, pressUnavailableMessage } from './press.js';
 import { assertValidSpec } from './validate.js';
 
 const DEFAULTS = {
@@ -273,16 +273,19 @@ async function withDocument(html, fn) {
 export async function renderJob(rawSpec, opts = {}) {
   const spec = applyDefaults(rawSpec);
 
-  // Whether Ghostscript is installed is a property of the machine, not of the spec, so
-  // it is checked here and never in validate.js — the colorIntent *enum* is the spec
-  // property, and that stays in the validator.
+  // Whether a usable Ghostscript is installed is a property of the machine, not of the
+  // spec, so it is checked here and never in validate.js — the colorIntent *enum* is the
+  // spec property, and that stays in the validator.
   //
   // This runs before Chromium starts and before a single byte is written. A cmyk job on
-  // a machine without Ghostscript fails loudly and leaves nothing behind. It never
-  // falls back to RGB: an RGB file handed to a press as CMYK is the same class of bug
-  // as A1 — the wrong document, delivered silently.
+  // a machine without Ghostscript (or with one too old to write PDF/X-4) fails loudly and
+  // leaves nothing behind. It never falls back to RGB: an RGB file handed to a press as
+  // CMYK is the same class of bug as A1 — the wrong document, delivered silently.
   const wantsPress = [spec, ...spec.variants].some((run) => (run.colorIntent ?? spec.colorIntent) === 'cmyk');
-  if (wantsPress && !isPressAvailable()) throw new Error(ghostscriptMissingMessage());
+  if (wantsPress) {
+    const capability = await pressCapability();
+    if (!capability.press) throw new Error(pressUnavailableMessage(capability));
+  }
 
   const when = opts.when ?? new Date();
   const ownBrowser = !opts.browser;

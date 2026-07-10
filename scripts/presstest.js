@@ -21,8 +21,9 @@ import { pdfInfo, inspectFonts, inspectPdfDeep, isSubsetted } from './pdfinfo.js
 import { renderJob } from './render.js';
 import { PROJECT_ROOT, outputDirFor } from './paths.js';
 import {
-  NO_ICC_WARNING, convertToCmyk, findGhostscript, findIccProfile,
-  ghostscriptVersion, isPressAvailable,
+  MIN_GS_VERSION, NO_ICC_WARNING, compareVersions, convertToCmyk, findGhostscript,
+  findIccProfile, ghostscriptVersion, isPressAvailable, isVersionSupported,
+  pressCapability, pressUnavailableMessage,
 } from './press.js';
 import { useTempOutputs } from './testenv.js';
 
@@ -47,8 +48,28 @@ console.log('— Detection —');
   const real = process.env.HIG_GS;
   process.env.HIG_GS = '0';
   check('HIG_GS=0 forces "Ghostscript absent" (so the missing-gs path is testable)',
-    findGhostscript() === null && isPressAvailable() === false);
+    findGhostscript() === null && (await isPressAvailable()) === false);
   if (real === undefined) delete process.env.HIG_GS; else process.env.HIG_GS = real;
+}
+
+console.log('— The minimum Ghostscript version, and why there is one —');
+// -dPDFX=4 arrived in 10.05.0. Ubuntu 24.04 ships 10.02.1, where PDFX is a *boolean*:
+// -dPDFX=4 dies with "/typecheck in --pdfmark--", and a plain CMYK conversion leaves
+// `/Group << /CS /DeviceRGB >>` behind — the objects are CMYK, the blending is not.
+// Both were observed against the real 10.02.1 binary. So old Ghostscript is, for press
+// purposes, no Ghostscript.
+check('compareVersions orders release numbers, not strings',
+  compareVersions('10.02.1', '10.05.0') < 0 && compareVersions('9.55.0', '10.05.0') < 0
+  && compareVersions('10.07.1', '10.05.0') > 0 && compareVersions('10.05', '10.05.0') === 0);
+check(`Ghostscript 10.02.1 (Ubuntu 24.04's) is rejected: it predates -dPDFX=4`, !isVersionSupported('10.02.1'));
+check('9.55.0 is rejected', !isVersionSupported('9.55.0'));
+check(`${MIN_GS_VERSION} is the floor, and is accepted`, isVersionSupported(MIN_GS_VERSION));
+check('10.07.1 is accepted', isVersionSupported('10.07.1'));
+check('an unknown version is rejected rather than assumed', !isVersionSupported(null) && !isVersionSupported(''));
+{
+  const message = pressUnavailableMessage({ reason: 'too-old', version: '10.02.1', gs: '/usr/bin/gs' });
+  check('the too-old error names the version found, the floor, and the alternative',
+    message.includes('10.02.1') && message.includes(MIN_GS_VERSION) && message.includes('"rgb"'), message);
 }
 {
   const real = process.env.HIG_ICC_PROFILE;
@@ -104,17 +125,20 @@ console.log('\n— cmyk without Ghostscript: hard error, nothing written —');
   if (realGs === undefined) delete process.env.HIG_GS; else process.env.HIG_GS = realGs;
 }
 
-const gs = findGhostscript();
-if (!gs) {
+const capability = await pressCapability();
+if (!capability.press) {
+  const why = capability.reason === 'too-old'
+    ? `Ghostscript ${capability.version} is older than ${MIN_GS_VERSION}`
+    : 'Ghostscript not found';
   console.log('\n— Conversion —');
-  skip('convert an RGB PDF to DeviceCMYK', 'Ghostscript not found');
-  skip('PDF/X-4 output intent', 'Ghostscript not found');
-  console.log('\npresstest: Ghostscript not found — conversion path SKIPPED.');
+  skip('convert an RGB PDF to DeviceCMYK', why);
+  skip('PDF/X-4 output intent', why);
+  console.log(`\npresstest: ${why} — conversion path SKIPPED.`);
   console.log(`${passed} passed, ${failed} failed, ${skipped} skipped`);
   process.exit(failed ? 1 : 0);
 }
 
-console.log(`\n  Ghostscript: ${gs} (${await ghostscriptVersion()})`);
+console.log(`\n  Ghostscript: ${capability.gs} (${await ghostscriptVersion()})`);
 
 // ---- render one real RGB poster, then convert it --------------------------
 const posterSpec = JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'poster-example.json'), 'utf8'));
@@ -132,10 +156,25 @@ try {
 const rgbInfo = await pdfInfo(rgbPdf);
 const workDir = path.dirname(rgbPdf);
 
+// A conversion that dies should read as one FAIL line carrying Ghostscript's own words,
+// not as a stack trace that takes the rest of the suite with it.
+async function convert(out, icc) {
+  try {
+    const result = await convertToCmyk(rgbPdf, out, { icc });
+    check(`${icc ? 'pdfx' : 'cmyk'}: Ghostscript completes the conversion`, true);
+    return result;
+  } catch (err) {
+    check(`${icc ? 'pdfx' : 'cmyk'}: Ghostscript completes the conversion`, false, `\n${err.message}`);
+    return null;
+  }
+}
+
 console.log('\n— Conversion: plain CMYK (no ICC profile) —');
-{
+await (async () => {
   const out = path.join(workDir, 'presstest-plain-cmyk.pdf');
-  const { pdfx, warnings } = await convertToCmyk(rgbPdf, out, { icc: null });
+  const converted = await convert(out, null);
+  if (!converted) return;
+  const { pdfx, warnings } = converted;
   const buf = await fs.readFile(out);
   const info = await pdfInfo(out);
   const deep = await inspectPdfDeep(buf);
@@ -152,8 +191,9 @@ console.log('\n— Conversion: plain CMYK (no ICC profile) —');
   check('cmyk: the text is unchanged — Ghostscript did not rasterize the page',
     normalize(info.text) === normalize(rgbInfo.text) && normalize(info.text).length > 100,
     `${normalize(info.text).length} chars vs ${normalize(rgbInfo.text).length}`);
-  check('cmyk: the page is DeviceCMYK with no DeviceRGB left',
-    deep.deviceCmyk > 0 && deep.deviceRgb === 0, `cmyk=${deep.deviceCmyk} rgb=${deep.deviceRgb}`);
+  check('cmyk: no object in the file still declares an RGB colour space',
+    deep.deviceCmyk > 0 && deep.rgbCarriers.length === 0,
+    `cmyk=${deep.deviceCmyk}, rgb carriers: ${deep.rgbCarriers.join('; ') || 'none'}`);
   check('cmyk: the job\'s provenance survives conversion (Author/Subject/Creator)',
     info.info.Author === posterSpec.project && info.info.Subject === posterSpec.docType
       && info.info.Creator === 'HTML Image Generator',
@@ -164,7 +204,7 @@ console.log('\n— Conversion: plain CMYK (no ICC profile) —');
     pdfx === null && deep.outputIntent === null && !deep.xmp.includes('pdfxid'));
   check('cmyk: and it says so, in warnings[], rather than silently degrading',
     warnings.length === 1 && warnings[0] === NO_ICC_WARNING, JSON.stringify(warnings));
-}
+})();
 
 console.log('\n— Conversion: PDF/X-4 (with an ICC profile) —');
 const icc = findIccProfile();
@@ -173,7 +213,9 @@ if (!icc) {
 } else {
   console.log(`  ICC: ${icc}`);
   const out = path.join(workDir, 'presstest-pdfx4.pdf');
-  const { pdfx, warnings } = await convertToCmyk(rgbPdf, out, { icc });
+  const converted = await convert(out, icc);
+  if (converted) {
+  const { pdfx, warnings } = converted;
   const buf = await fs.readFile(out);
   const info = await pdfInfo(out);
   const deep = await inspectPdfDeep(buf);
@@ -206,8 +248,11 @@ if (!icc) {
   check('pdfx: object streams appear at PDF 1.6 — so a converted X-4 file needs inspectPdfDeep(), not a regex',
     deep.objStreams > 0 && inspectFonts(buf).embedded === 0,
     `objStm=${deep.objStreams} regexFontFiles=${inspectFonts(buf).embedded}`);
+  check('pdfx: no object in the file still declares an RGB colour space',
+    deep.rgbCarriers.length === 0, deep.rgbCarriers.join('; '));
   check('pdfx: a real output intent means no degradation warning',
     pdfx === 'PDF/X-4' && warnings.length === 0, JSON.stringify(warnings));
+  }
 }
 
 console.log('\n— Integration: a cmyk job through renderJob() —');
@@ -226,7 +271,8 @@ console.log('\n— Integration: a cmyk job through renderJob() —');
   const pdf = outputs.find((r) => r.format === 'pdf').path;
   const deep = await inspectPdfDeep(await fs.readFile(pdf));
   check('cmyk job: the PDF deliverable IS the converted file, converted in place',
-    deep.deviceCmyk > 0 && deep.deviceRgb === 0, `cmyk=${deep.deviceCmyk} rgb=${deep.deviceRgb}`);
+    deep.deviceCmyk > 0 && deep.rgbCarriers.length === 0,
+    `cmyk=${deep.deviceCmyk}, rgb carriers: ${deep.rgbCarriers.join('; ') || 'none'}`);
 
   const dir = path.dirname(pdf);
   const [deliverable, latest] = await Promise.all([fs.readFile(pdf), fs.readFile(path.join(dir, 'latest.pdf'))]);

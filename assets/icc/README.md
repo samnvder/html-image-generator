@@ -1,5 +1,10 @@
 # The ICC profile slot
 
+> **Ghostscript 10.05.0 or newer is required for any `colorIntent: "cmyk"` render.**
+> `-dPDFX=4` does not exist before it, and older builds leave RGB transparency-blending
+> spaces inside a CMYK file. Ubuntu 24.04's `apt-get install ghostscript` gives 10.02.1 —
+> too old. The tool refuses rather than degrading; see `RESEARCH_REPORT.md` §5.
+
 **Nothing in this folder is committed except this file.** Drop a CMYK ICC profile at
 `assets/icc/press.icc` and every `colorIntent: "cmyk"` render becomes **PDF/X-4**:
 the profile is embedded as the `/DestOutputProfile` of a `/GTS_PDFX` output intent,

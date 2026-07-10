@@ -50,8 +50,9 @@ export async function inspectPdfDeep(buf) {
   const doc = await PDFDocument.load(buf, { updateMetadata: false, throwOnInvalidObject: false });
 
   const fonts = new Set();
+  const rgbCarriers = [];
   let embedded = 0;
-  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
     // Not `obj.dict ?? obj`: a PDFDict's own `.dict` is its internal Map, so that
     // spelling silently skips every dictionary in the file.
     const dict = obj instanceof PDFStream ? obj.dict : obj;
@@ -60,6 +61,17 @@ export async function inspectPdfDeep(buf) {
     if (base) fonts.add(String(base).replace(/^\//, ''));
     for (const key of ['FontFile', 'FontFile2', 'FontFile3']) {
       if (dict.get(PDFName.of(key))) embedded++;
+    }
+    // Where an RGB colour space survived a CMYK conversion matters more than how many
+    // times the bytes `/DeviceRGB` appear. A bare count cannot tell an image resource
+    // (a real defect) from a transparency group's blending space.
+    for (const key of dict.keys()) {
+      const value = dict.get(key);
+      const names = value instanceof PDFArray ? value.asArray() : [value];
+      if (names.some((n) => String(n) === '/DeviceRGB')) {
+        const type = String(dict.get(PDFName.of('Subtype')) ?? dict.get(PDFName.of('Type')) ?? '?');
+        rgbCarriers.push(`${ref} ${type} ${String(key)}=/DeviceRGB`);
+      }
     }
   }
 
@@ -94,6 +106,7 @@ export async function inspectPdfDeep(buf) {
     trimBoxOnEveryPage: doc.getPages().every((p) => Boolean(p.node.get(PDFName.of('TrimBox')))),
     trapped: String(info?.get(PDFName.of('Trapped')) ?? ''),
     encrypted: Boolean(doc.context.trailerInfo.Encrypt),
+    rgbCarriers,
     deviceRgb: (raw.match(/\/DeviceRGB/g) ?? []).length,
     deviceCmyk: (raw.match(/\/DeviceCMYK/g) ?? []).length,
   };
