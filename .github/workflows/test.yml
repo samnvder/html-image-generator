@@ -1,0 +1,32 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces via AppArmor, which is
+      # exactly what Chromium's sandbox needs. Without this, every puppeteer.launch()
+      # in the suite dies before it opens a page. Relaxing it here beats threading
+      # --no-sandbox through five launch sites.
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      # Puppeteer downloads its own Chromium on install. Fonts are committed.
+      - run: npm ci
+
+      # The suite renders into a temp dir (HIG_OUTPUTS_ROOT), so it leaves the tree clean.
+      - run: npm test
+
+      - name: the tests must not dirty the working tree
+        run: git diff --exit-code && test -z "$(git status --porcelain)"

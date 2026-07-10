@@ -12,6 +12,9 @@ import { pdfInfo, inspectFonts } from './pdfinfo.js';
 import { PROJECT_ROOT } from './paths.js';
 import { listTemplates } from './templates.js';
 import { isCssLength } from './validate.js';
+import { useTempOutputs } from './testenv.js';
+
+const OUTPUTS_ROOT = await useTempOutputs('templatetest');
 
 let passed = 0;
 let failed = 0;
@@ -96,5 +99,6 @@ try {
   await browser.close();
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`\noutputs root: ${OUTPUTS_ROOT}`);
+console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

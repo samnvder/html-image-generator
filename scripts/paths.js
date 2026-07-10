@@ -8,7 +8,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const OUTPUTS_ROOT = path.join(PROJECT_ROOT, 'outputs');
+
+// Resolved at call time, never captured at import time: the test suites set
+// HIG_OUTPUTS_ROOT to a temp dir *after* this module has already been imported, so
+// that their artifacts never appear in the user's Recent Outputs beside real work.
+export function getOutputsRoot() {
+  return process.env.HIG_OUTPUTS_ROOT
+    ? path.resolve(process.env.HIG_OUTPUTS_ROOT)
+    : path.join(PROJECT_ROOT, 'outputs');
+}
+
+// `outputs/` is a URL namespace mounted on whatever the outputs root happens to be.
+// The API speaks these paths; only paths.js knows where they actually live.
+export function toOutputsUrlPath(abs) {
+  return `outputs/${path.relative(getOutputsRoot(), abs).replaceAll('\\', '/')}`;
+}
+
+export function fromOutputsUrlPath(urlPath) {
+  return path.resolve(getOutputsRoot(), String(urlPath).replace(/^\/*outputs\/*/, ''));
+}
+
+// Is `child` the same path as `parent`, or inside it?
+//
+// `abs.startsWith(parent)` is the obvious spelling and the wrong one: a sibling
+// directory named `outputsX` passes a startsWith check against `outputs`.
+export function isInside(parent, child) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
+}
 
 // Inches; portrait. Points = inches * 72, CSS px = inches * 96.
 export const PAPER_SIZES = {
@@ -96,7 +123,7 @@ export function timestamp(date = new Date()) {
 }
 
 export function outputDirFor(spec) {
-  return path.join(OUTPUTS_ROOT, slugify(spec.project, 'project'), pluralizeDocType(slugify(spec.docType, 'docType')));
+  return path.join(getOutputsRoot(), slugify(spec.project, 'project'), pluralizeDocType(slugify(spec.docType, 'docType')));
 }
 
 // `suffix` disambiguates variant runs that resolve to the same effective name.

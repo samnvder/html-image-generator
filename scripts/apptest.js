@@ -12,9 +12,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import puppeteer from 'puppeteer';
 import sharp from 'sharp';
-import { PROJECT_ROOT } from './paths.js';
+import { PROJECT_ROOT, isInside, fromOutputsUrlPath } from './paths.js';
 import { pdfInfo, inspectFonts } from './pdfinfo.js';
 import { renderJob } from './render.js';
+import { useTempOutputs } from './testenv.js';
+
+// Set before the server is spawned, so the child inherits it and parent and child
+// render into the same temp root — never the user's outputs/.
+const OUTPUTS_ROOT = await useTempOutputs('apptest');
 
 let passed = 0;
 let failed = 0;
@@ -27,6 +32,7 @@ function check(name, cond, detail = '') {
 const t0 = Date.now();
 const server = spawn(process.execPath, [path.join(PROJECT_ROOT, 'server', 'index.js'), '--no-open'], {
   cwd: PROJECT_ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, HIG_OUTPUTS_ROOT: OUTPUTS_ROOT },
 });
 
 const base = await new Promise((resolve, reject) => {
@@ -250,6 +256,17 @@ try {
   check('badge follows the user choosing Legal', /Legal · 8\.5 × 14 in/.test(badgeAfterLegal), badgeAfterLegal);
 
   console.log('— Recent outputs panel —');
+  // The temp outputs root starts empty. Give the panel a real render to list, through
+  // the server's warm Chromium rather than a second browser launch.
+  const posterSpec = JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'poster-example.json'), 'utf8'));
+  await page.evaluate(async (s) => {
+    const r = await fetch('/api/render', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: s, autoOpen: false }),
+    });
+    if (!r.ok) throw new Error(`seed render failed: ${r.status}`);
+  }, { ...posterSpec, name: 'apptest-seed' });
+
   const outputs = await page.evaluate(async () => {
     document.querySelector('.tab[data-tab="outputs"]').click();
     await new Promise((r) => setTimeout(r, 700));
@@ -438,7 +455,9 @@ try {
   }, uiSpec);
   const cliRes = await renderJob({ ...spec, name: 'apptest-cli' }, { autoOpen: false });
 
-  const uiPng = path.join(PROJECT_ROOT, uiRes.find((r) => r.format === 'png').path);
+  // The API speaks `outputs/…` URL paths; they resolve against the outputs root,
+  // which under test is a temp dir outside the project.
+  const uiPng = fromOutputsUrlPath(uiRes.find((r) => r.format === 'png').path);
   const cliPng = cliRes.find((r) => r.format === 'png').path;
 
   const [uiMeta, cliMeta] = await Promise.all([sharp(uiPng).metadata(), sharp(cliPng).metadata()]);
@@ -447,8 +466,15 @@ try {
   check('UI and CLI PNGs have identical DPI metadata', uiMeta.density === cliMeta.density, `${uiMeta.density} vs ${cliMeta.density}`);
 
   // Chromium's rasterizer is NOT bit-exact across processes: gradients and glyph
-  // antialiasing can differ by ~1-2/255 on a handful of pixels. Assert visual
-  // equivalence, not a hash. The PDF (vector) is the authoritative output.
+  // antialiasing differ on a handful of subpixels. Assert visual equivalence, not a
+  // hash. The PDF (vector) is the authoritative output.
+  //
+  // The RATIO is the bound that discriminates. A structural difference — the A1
+  // bleed-PNG bug — moved 1.1% of subpixels, four orders of magnitude over this
+  // limit. The per-subpixel delta is the weak signal: under load this render has been
+  // seen at 129 differing subpixels (0.0005%) with a max delta of 5/255, which is one
+  // invisible pixel on an antialiased gradient edge, not a wrong picture. A delta
+  // ceiling of 2 was one observation mistaken for a law.
   const [uiRaw, cliRaw] = await Promise.all([sharp(uiPng).raw().toBuffer(), sharp(cliPng).raw().toBuffer()]);
   let differing = 0;
   let maxDelta = 0;
@@ -457,10 +483,10 @@ try {
     if (d) { differing++; if (d > maxDelta) maxDelta = d; }
   }
   const ratio = differing / uiRaw.length;
-  check('UI and CLI PNGs are visually identical (<0.01% of subpixels, delta <= 2)',
-    ratio < 0.0001 && maxDelta <= 2, `${differing} bytes differ (${(ratio * 100).toFixed(5)}%), max delta ${maxDelta}`);
+  check('UI and CLI PNGs are visually identical (<0.01% of subpixels, delta <= 8)',
+    ratio < 0.0001 && maxDelta <= 8, `${differing} bytes differ (${(ratio * 100).toFixed(5)}%), max delta ${maxDelta}`);
 
-  const uiPdf = path.join(PROJECT_ROOT, uiRes.find((r) => r.format === 'pdf').path);
+  const uiPdf = fromOutputsUrlPath(uiRes.find((r) => r.format === 'pdf').path);
   const cliPdf = cliRes.find((r) => r.format === 'pdf').path;
   const [uiInfo, cliInfo] = await Promise.all([pdfInfo(uiPdf), pdfInfo(cliPdf)]);
   check('UI and CLI PDFs have the same page box', uiInfo.width === cliInfo.width && uiInfo.height === cliInfo.height,
@@ -471,6 +497,16 @@ try {
 
   check('UI render lands in the routed folder',
     uiRes.find((r) => r.format === 'png').path.startsWith('outputs/south-end/posters/'), uiPng);
+
+  console.log('— A7: the suite renders into a temp outputs root —');
+  check('the server honoured HIG_OUTPUTS_ROOT', isInside(OUTPUTS_ROOT, uiPng), uiPng);
+  check('the in-process CLI render honoured it too', isInside(OUTPUTS_ROOT, cliPng), cliPng);
+  check('nothing was written to the project outputs/',
+    !isInside(path.join(PROJECT_ROOT, 'outputs'), uiPng) && !isInside(path.join(PROJECT_ROOT, 'outputs'), cliPng));
+  // The Recent Outputs panel reads the same root, so it must still find the renders.
+  const panel = await page.evaluate(() => fetch('/api/outputs').then((r) => r.json()));
+  check('the outputs panel lists renders from the temp root',
+    panel.some((r) => r.path.includes('apptest-ui')), `${panel.length} rows`);
 } finally {
   await fs.writeFile(legalTemplate, originalLegal);
   await Promise.all([SAVED_JOB, HIDDEN_JOB].map((f) => fs.rm(f, { force: true })));
@@ -478,6 +514,7 @@ try {
   server.kill();
 }
 
-console.log(`\nboot: ${bootMs} ms to first URL`);
+console.log(`\noutputs root: ${OUTPUTS_ROOT}`);
+console.log(`boot: ${bootMs} ms to first URL`);
 console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

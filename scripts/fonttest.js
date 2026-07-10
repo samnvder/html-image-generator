@@ -12,6 +12,9 @@ import puppeteer from 'puppeteer';
 import { renderJob } from './render.js';
 import { inspectFonts, isSubsetted } from './pdfinfo.js';
 import { PROJECT_ROOT } from './paths.js';
+import { useTempOutputs } from './testenv.js';
+
+await useTempOutputs('fonttest');
 
 const TEMPLATE = path.join(PROJECT_ROOT, 'templates', '_fonttest.html');
 await fs.writeFile(TEMPLATE, `<!doctype html>

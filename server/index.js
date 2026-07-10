@@ -13,12 +13,17 @@ import chokidar from 'chokidar';
 import puppeteer from 'puppeteer';
 import open from 'open';
 import { renderJob, composeDocument, applyDefaults } from '../scripts/render.js';
-import { PROJECT_ROOT, OUTPUTS_ROOT, outputDirFor, slugify } from '../scripts/paths.js';
+import {
+  PROJECT_ROOT, getOutputsRoot, outputDirFor, slugify, isInside, toOutputsUrlPath, fromOutputsUrlPath,
+} from '../scripts/paths.js';
 import { validateSpec } from '../scripts/validate.js';
 import { listTemplates } from '../scripts/templates.js';
 import { ensureThumbnails, THUMB_DIR } from '../scripts/thumbs.js';
 
 const UI_DIR = path.join(PROJECT_ROOT, 'server', 'ui');
+// Usually <project>/outputs; HIG_OUTPUTS_ROOT redirects it (the test suites point it
+// at a temp dir). `/outputs/…` URLs are mounted on it wherever it lives.
+const OUTPUTS_DIR = getOutputsRoot();
 
 // The preview iframe can't POST, so the last previewed spec lives here and
 // GET /preview composes from it. Single-user localhost app; one slot is enough.
@@ -31,13 +36,15 @@ await app.register(fastifyWebsocket);
 
 // ---- static mounts -------------------------------------------------------
 await app.register(fastifyStatic, { root: UI_DIR });
-for (const dir of ['templates', 'fonts', 'assets', 'outputs']) {
+for (const dir of ['templates', 'fonts', 'assets']) {
   await app.register(fastifyStatic, {
     root: path.join(PROJECT_ROOT, dir),
     prefix: `/${dir}/`,
     decorateReply: false,
   });
 }
+await fs.mkdir(OUTPUTS_DIR, { recursive: true });
+await app.register(fastifyStatic, { root: OUTPUTS_DIR, prefix: '/outputs/', decorateReply: false });
 // Paged.js polyfill, for the preview only.
 await app.register(fastifyStatic, {
   root: path.join(PROJECT_ROOT, 'node_modules', 'pagedjs', 'dist'),
@@ -99,11 +106,11 @@ app.get('/api/projects', async () => {
   const out = {};
   let projects = [];
   try {
-    projects = (await fs.readdir(OUTPUTS_ROOT, { withFileTypes: true }))
+    projects = (await fs.readdir(OUTPUTS_DIR, { withFileTypes: true }))
       .filter((d) => d.isDirectory()).map((d) => d.name);
   } catch { /* outputs/ not created yet */ }
   for (const p of projects) {
-    out[p] = (await fs.readdir(path.join(OUTPUTS_ROOT, p), { withFileTypes: true }))
+    out[p] = (await fs.readdir(path.join(OUTPUTS_DIR, p), { withFileTypes: true }))
       .filter((d) => d.isDirectory()).map((d) => d.name);
   }
   return out;
@@ -117,11 +124,11 @@ app.get('/api/outputs', async () => {
       if (e.isDirectory()) await walk(abs);
       else if (/\.(pdf|png)$/.test(e.name) && !e.name.startsWith('latest.')) {
         const st = await fs.stat(abs);
-        rows.push({ path: path.relative(PROJECT_ROOT, abs).replaceAll('\\', '/'), size: st.size, mtime: st.mtimeMs });
+        rows.push({ path: toOutputsUrlPath(abs), size: st.size, mtime: st.mtimeMs });
       }
     }
   }
-  try { await walk(OUTPUTS_ROOT); } catch { /* none yet */ }
+  try { await walk(OUTPUTS_DIR); } catch { /* none yet */ }
   return rows.sort((a, b) => b.mtime - a.mtime).slice(0, 50);
 });
 
@@ -129,7 +136,7 @@ app.get('/api/outputs', async () => {
 // destination is never a surprise.
 app.post('/api/resolve-path', async (req, reply) => {
   try {
-    return { dir: `${path.relative(PROJECT_ROOT, outputDirFor(req.body)).replaceAll('\\', '/')}/` };
+    return { dir: `${toOutputsUrlPath(outputDirFor(req.body))}/` };
   } catch (err) {
     return reply.code(400).send({ error: err.message });
   }
@@ -160,7 +167,7 @@ app.post('/api/render', async (req, reply) => {
   const { spec, autoOpen = true } = req.body;
   try {
     const results = await renderJob(spec, { browser, autoOpen });
-    return results.map((r) => ({ format: r.format, path: path.relative(PROJECT_ROOT, r.path).replaceAll('\\', '/') }));
+    return results.map((r) => ({ format: r.format, path: toOutputsUrlPath(r.path) }));
   } catch (err) {
     // SpecError carries field-level errors; anything else is a genuine render failure.
     return reply.code(400).send({ error: err.message, errors: err.errors ?? [] });
@@ -168,8 +175,8 @@ app.post('/api/render', async (req, reply) => {
 });
 
 app.post('/api/reveal', async (req, reply) => {
-  const target = path.resolve(PROJECT_ROOT, req.body.path);
-  if (!target.startsWith(OUTPUTS_ROOT)) return reply.code(403).send({ error: 'outside outputs/' });
+  const target = fromOutputsUrlPath(req.body.path);
+  if (!isInside(OUTPUTS_DIR, target)) return reply.code(403).send({ error: 'outside outputs/' });
   await open(path.dirname(target));
   return { ok: true };
 });

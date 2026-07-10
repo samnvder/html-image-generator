@@ -10,9 +10,13 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import puppeteer from 'puppeteer';
 import sharp from 'sharp';
-import { slugify, pluralizeDocType, OUTPUTS_ROOT } from './paths.js';
+import { slugify, pluralizeDocType, PROJECT_ROOT, isInside } from './paths.js';
 import { pdfInfo } from './pdfinfo.js';
 import { renderJob } from './render.js';
+import { useTempOutputs } from './testenv.js';
+
+// Never render into the user's outputs/. paths.js resolves the root at call time.
+const OUTPUTS_ROOT = await useTempOutputs('selftest');
 
 let passed = 0;
 let failed = 0;
@@ -181,9 +185,18 @@ try {
   check('A4: a renamed variant is not suffixed',
     namedOut.every((r) => !/--v\d/.test(r.path)) && new Set(namedOut.map((r) => r.path)).size === 2,
     namedOut.map((r) => path.basename(r.path)).join(' '));
+
+  // A7 — the suite's artifacts belong in the temp root, not the user's outputs/.
+  const everyRender = [...letterOut, ...legalOut, ...probeOut, ...bleedOut, ...controlOut,
+    ...escapeOut, ...variantOut, ...namedOut];
+  check('A7: every artifact landed under HIG_OUTPUTS_ROOT',
+    everyRender.every((r) => isInside(OUTPUTS_ROOT, r.path)), OUTPUTS_ROOT);
+  check('A7: nothing was written to the project outputs/',
+    !everyRender.some((r) => isInside(path.join(PROJECT_ROOT, 'outputs'), r.path)));
 } finally {
   await browser.close();
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`\noutputs root: ${OUTPUTS_ROOT}`);
+console.log(`${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
