@@ -32,7 +32,7 @@ jobs:
 
       - name: cache Ghostscript ${{ env.GS_VERSION }}
         id: gs-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/gs
           key: ghostscript-${{ env.GS_VERSION }}-${{ runner.os }}
