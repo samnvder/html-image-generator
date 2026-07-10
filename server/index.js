@@ -13,7 +13,7 @@ import chokidar from 'chokidar';
 import puppeteer from 'puppeteer';
 import open from 'open';
 import { renderJob, composeDocument, applyDefaults } from '../scripts/render.js';
-import { PROJECT_ROOT, OUTPUTS_ROOT, outputDirFor } from '../scripts/paths.js';
+import { PROJECT_ROOT, OUTPUTS_ROOT, outputDirFor, slugify } from '../scripts/paths.js';
 import { validateSpec } from '../scripts/validate.js';
 import { listTemplates } from '../scripts/templates.js';
 import { ensureThumbnails, THUMB_DIR } from '../scripts/thumbs.js';
@@ -58,9 +58,20 @@ app.get('/api/templates', async () => listTemplates());
 // The same validator the CLI and renderJob() use. The UI never re-implements it.
 app.post('/api/validate', async (req) => ({ errors: validateSpec(req.body) }));
 
+// Only jobs the UI can actually load: a job pointing at a template that isn't in the
+// gallery (a `_`-prefixed fixture, or one since deleted) leaves the form in a state
+// the guard logic never anticipated.
 app.get('/api/jobs', async () => {
-  const files = await fs.readdir(path.join(PROJECT_ROOT, 'jobs'));
-  return files.filter((f) => f.endsWith('.json') && f !== 'schema.json').sort();
+  const dir = path.join(PROJECT_ROOT, 'jobs');
+  const files = (await fs.readdir(dir)).filter((f) => f.endsWith('.json') && f !== 'schema.json').sort();
+  const known = new Set((await listTemplates()).map((t) => t.file));
+  const listable = await Promise.all(files.map(async (f) => {
+    try {
+      const spec = JSON.parse(await fs.readFile(path.join(dir, f), 'utf8'));
+      return known.has(spec.template) ? f : null;
+    } catch { return null; }   // a malformed job shouldn't break the picker
+  }));
+  return listable.filter(Boolean);
 });
 
 app.get('/api/jobs/:name', async (req, reply) => {
@@ -76,9 +87,11 @@ app.post('/api/jobs', async (req, reply) => {
   const spec = req.body;
   const errors = validateSpec(spec);
   if (errors.length) return reply.code(400).send({ error: 'Invalid job spec', errors });
-  const file = `${path.basename(spec.name)}.json`;
+  // The name is free text and validates fine as `menu: spring` — but a colon is
+  // illegal on NTFS. Slugify it, exactly as the output path does.
+  const file = `${slugify(spec.name, 'name')}.json`;
   await fs.writeFile(path.join(PROJECT_ROOT, 'jobs', file), `${JSON.stringify(spec, null, 2)}\n`);
-  return { saved: `jobs/${file}` };
+  return { saved: `jobs/${file}`, file };
 });
 
 // Existing projects and doc types, so the UI's combo boxes know what already exists.

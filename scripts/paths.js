@@ -99,11 +99,20 @@ export function outputDirFor(spec) {
   return path.join(OUTPUTS_ROOT, slugify(spec.project, 'project'), pluralizeDocType(slugify(spec.docType, 'docType')));
 }
 
-export async function resolveOutputPath(spec, ext, when = new Date()) {
+// `suffix` disambiguates variant runs that resolve to the same effective name.
+// Every run of a job shares one timestamp by design, so without it a variant that
+// overrides only `content` would overwrite the base render with no error at all.
+export async function resolveOutputPath(spec, ext, when = new Date(), suffix = '') {
   const dir = outputDirFor(spec);
   await fs.mkdir(dir, { recursive: true });
-  const file = `${slugify(spec.name, 'name')}--${spec.paperSize}--${timestamp(when)}.${ext}`;
+  const file = `${slugify(spec.name, 'name')}${suffix}--${spec.paperSize}--${timestamp(when)}.${ext}`;
   return path.join(dir, file);
+}
+
+// The identity of a render's destination, before the timestamp: two runs that agree
+// on all of these would land on the same file.
+export function outputKey(spec) {
+  return `${outputDirFor(spec)}|${slugify(spec.name, 'name')}|${spec.paperSize}`;
 }
 
 // Copy (not symlink — Windows) the newest render to latest.<ext> alongside it.

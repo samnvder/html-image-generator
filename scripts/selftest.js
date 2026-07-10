@@ -152,6 +152,35 @@ try {
   check('A2: {{key}} renders tags literally', esc.includes('<b>bold?</b>'), esc.slice(0, 120));
   check('A2: text like "use <Enter> to continue" survives intact', esc.includes('use<Enter>tocontinue'), esc.slice(0, 120));
   check('A2: {{{key}}} renders as markup', esc.includes('MARKUP') && !esc.includes('<b>MARKUP</b>'), esc.slice(0, 120));
+
+  // A4 — every run of a job shares one timestamp, so a variant that overrides only
+  // `content` used to resolve to the base run's exact path and overwrite it silently.
+  const variantOut = await renderJob({
+    ...base, name: 'selftest-variants', outputs: ['pdf'],
+    content: { title: 'Variant 1', note: 'base run' },
+    variants: [
+      { content: { title: 'Variant 2', note: 'second run' } },
+      { content: { title: 'Variant 3', note: 'third run' } },
+    ],
+  }, { browser, autoOpen: false });
+  const variantPaths = variantOut.map((r) => r.path);
+  check('A4: three runs produce three PDFs', variantPaths.length === 3, `${variantPaths.length}`);
+  check('A4: no two runs share an output path', new Set(variantPaths).size === 3, variantPaths.map((p) => path.basename(p)).join(' '));
+  check('A4: repeats of a name are numbered --v2, --v3',
+    /--v2--letter--/.test(variantPaths[1]) && /--v3--letter--/.test(variantPaths[2]),
+    variantPaths.map((p) => path.basename(p)).join(' '));
+  const survived = await Promise.all(variantPaths.map((p) => fs.stat(p).then(() => true, () => false)));
+  check('A4: every variant file survived (none overwritten)', survived.every(Boolean), JSON.stringify(survived));
+
+  // A variant that renames itself keeps its own name — no suffix, no collision.
+  const namedOut = await renderJob({
+    ...base, name: 'selftest-named-base', outputs: ['pdf'],
+    content: { title: 'Base', note: 'x' },
+    variants: [{ name: 'selftest-named-alt', content: { title: 'Alt', note: 'y' } }],
+  }, { browser, autoOpen: false });
+  check('A4: a renamed variant is not suffixed',
+    namedOut.every((r) => !/--v\d/.test(r.path)) && new Set(namedOut.map((r) => r.path)).size === 2,
+    namedOut.map((r) => path.basename(r.path)).join(' '));
 } finally {
   await browser.close();
 }

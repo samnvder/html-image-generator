@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer';
 import sharp from 'sharp';
 import {
-  PAPER_SIZES, PROJECT_ROOT, resolveOutputPath, writeLatest,
+  PAPER_SIZES, PROJECT_ROOT, outputKey, resolveOutputPath, writeLatest,
 } from './paths.js';
 import { assertValidSpec } from './validate.js';
 
@@ -261,7 +261,20 @@ export async function renderJob(rawSpec, opts = {}) {
   try {
     // A variant's overrides can be just as wrong as a base spec's. Validate each.
     const runs = [spec, ...spec.variants.map((v) => assertValidSpec({ ...spec, ...v, variants: [] }))];
+
+    // A variant that overrides only `content` keeps the base name, and all runs share
+    // one timestamp — so the second write silently replaced the first. Number the
+    // repeats instead: base, base--v2, base--v3.
+    const runsPerKey = new Map();
+    const suffixFor = (run) => {
+      const key = outputKey(run);
+      const n = (runsPerKey.get(key) ?? 0) + 1;
+      runsPerKey.set(key, n);
+      return n === 1 ? '' : `--v${n}`;
+    };
+
     for (const run of runs) {
+      const suffix = suffixFor(run);
       // The two outputs are two different documents whenever the job asks for bleed
       // or crop marks: the PDF gets the Paged.js composition, the PNG never does.
       if (run.outputs.includes('pdf')) {
@@ -270,7 +283,7 @@ export async function renderJob(rawSpec, opts = {}) {
           const page = await browser.newPage();
           try { return await renderPdf(page, url, paged); } finally { await page.close(); }
         });
-        const out = await resolveOutputPath(run, 'pdf', when);
+        const out = await resolveOutputPath(run, 'pdf', when, suffix);
         await fs.writeFile(out, pdf);
         await writeLatest(out);
         results.push({ format: 'pdf', path: out });
@@ -283,7 +296,7 @@ export async function renderJob(rawSpec, opts = {}) {
           const page = await browser.newPage();
           try { return await renderPng(page, url, run); } finally { await page.close(); }
         });
-        const out = await resolveOutputPath(run, 'png', when);
+        const out = await resolveOutputPath(run, 'png', when, suffix);
         await fs.writeFile(out, png);
         await writeLatest(out);
         results.push({ format: 'png', path: out });

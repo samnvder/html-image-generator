@@ -86,6 +86,12 @@ const loadJob = async (file) => {
 const legalTemplate = path.join(PROJECT_ROOT, 'templates', 'legal-form.html');
 const originalLegal = await fs.readFile(legalTemplate, 'utf8');
 
+// Job files this suite creates. Both are removed in the finally block — a test must
+// not leave the user's jobs/ picker holding its scratch work.
+const JOBS_DIR = path.join(PROJECT_ROOT, 'jobs');
+const SAVED_JOB = path.join(JOBS_DIR, 'menu-spring.json');
+const HIDDEN_JOB = path.join(JOBS_DIR, '_apptest-hidden.json');
+
 try {
   console.log('— Cold start —');
   await page.goto(base, { waitUntil: 'networkidle0' });
@@ -274,6 +280,56 @@ try {
   // Back to a known state for the tests that follow.
   await loadJob('poster-example.json');
 
+  console.log('— A3: a job name is slugified before it becomes a filename —');
+  // "menu: spring" validates fine (it slugifies), but a colon is illegal on NTFS —
+  // the save handler used to write it raw and 500.
+  const savedDest = await page.evaluate(async () => {
+    const f = document.forms.spec;
+    f.name.value = 'menu: spring';
+    f.name.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 700));
+    document.getElementById('save-job').click();
+    await new Promise((r) => setTimeout(r, 900));
+    return document.getElementById('dest').textContent;
+  });
+  check('saving a name with a colon succeeds', savedDest.startsWith('✓'), savedDest);
+  check('it lands at jobs/menu-spring.json', savedDest.includes('jobs/menu-spring.json'), savedDest);
+  check('the slugified job file exists on disk',
+    await fs.stat(path.join(JOBS_DIR, 'menu-spring.json')).then(() => true, () => false));
+
+  console.log('— A5: the picker only offers jobs it can actually load —');
+  // A job pointing at a `_`-prefixed fixture template isn't in the gallery, so loading
+  // it left select.value = '' and the form in a state the guard never anticipated.
+  await fs.writeFile(HIDDEN_JOB, `${JSON.stringify({
+    name: 'apptest-hidden', project: 'Demo', docType: 'probe', paperSize: 'letter',
+    template: '_selftest.html', content: { title: 'hidden', note: 'fixture' },
+  }, null, 2)}\n`);
+  await new Promise((r) => setTimeout(r, 800));
+
+  const jobList = await page.evaluate(() => fetch('/api/jobs').then((r) => r.json()));
+  check('a job on a hidden fixture template is not offered', !jobList.includes('_apptest-hidden.json'), jobList.join(', '));
+  check('the real example jobs are still offered',
+    ['poster-example.json', 'certificate-example.json', 'legal-form-example.json'].every((f) => jobList.includes(f)),
+    jobList.join(', '));
+  check('the just-saved job is offered', jobList.includes('menu-spring.json'), jobList.join(', '));
+
+  const pickerFiles = await page.$$eval('#job-picker option', (opts) => opts.map((o) => o.value).filter(Boolean));
+  check('every offered job appears in the picker', pickerFiles.length === jobList.length, `${pickerFiles.length} vs ${jobList.length}`);
+  for (const file of pickerFiles) {
+    await loadJob(file);
+    const state = await page.evaluate(() => ({
+      template: document.forms.spec.template.value,
+      disabled: document.getElementById('render').disabled,
+      errors: document.querySelectorAll('.field-error').length,
+    }));
+    check(`loading ${file} leaves a valid form state`,
+      state.template !== '' && !state.disabled && state.errors === 0,
+      JSON.stringify(state));
+  }
+
+  // Back to a known state for the tests that follow.
+  await loadJob('poster-example.json');
+
   console.log('— Routing regression: the posterses bug —');
   const routed = await page.evaluate(async () => {
     const r = await fetch('/api/resolve-path', {
@@ -417,6 +473,7 @@ try {
     uiRes.find((r) => r.format === 'png').path.startsWith('outputs/south-end/posters/'), uiPng);
 } finally {
   await fs.writeFile(legalTemplate, originalLegal);
+  await Promise.all([SAVED_JOB, HIDDEN_JOB].map((f) => fs.rm(f, { force: true })));
   await browser.close();
   server.kill();
 }
