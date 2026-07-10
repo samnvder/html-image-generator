@@ -39,6 +39,9 @@ jobs:
 
       - name: build Ghostscript ${{ env.GS_VERSION }}
         if: steps.gs-cache.outputs.cache-hit != 'true'
+        # In $RUNNER_TEMP, not the checkout: the tarball and its source tree would
+        # otherwise sit in the working directory and fail the "must not dirty" step.
+        working-directory: ${{ runner.temp }}
         run: |
           set -euo pipefail
           curl -fsSL -o gs.tar.xz \
