@@ -117,6 +117,48 @@
 
 ---
 
+## Phase 6 — Validation & UX Overhaul *(~large, planned 2026-07-09 after first real use)*
+
+First real user session surfaced this phase. The screenshot evidence: doc type "posters" routed to `outputs/south-end/posterses/`, a certificate template previewed on Legal portrait as a broken half-empty page, and a render shipped named `untitled--legal`. Three failures, three causes: a routing bug, zero validation, and a UI that lets every wrong combination happen silently.
+
+### 6A — Correctness & validation — **DONE 2026-07-09**
+
+Shipped: `scripts/validate.js` (one validator, enforced inside `applyDefaults()` so CLI, API, and UI cannot diverge), the idempotent `pluralizeDocType()` fix, `scripts/templates.js` + `<meta name="template-config">` in all three templates, `/api/validate` and `/api/templates` (now returning config + placeholders), inline field errors in the UI, and a mismatch warning. **77 new assertions in `scripts/validatetest.js`; suite total 193.**
+
+**One deliberate deviation from the plan below:** it said template selection should auto-apply `paperSize`. It must not — that would silently choose the one variable the Question Guard exists to protect. Templates now apply orientation/margin/outputs and *recommend* a paper size (dashed "recommended" badge); the user still picks. Choosing differently produces a visible warning rather than a silent bad render.
+
+### 6A — original plan (for reference)
+
+1. **Fix the double-pluralization bug.** The UI's doc-type combo is populated from `outputs/*` folder names, which are already plural — `posters` → `pluralizeDocType()` → `posterses`. Fix in `paths.js`: build a reverse map of known plurals and pass anything already plural through unchanged (`posters` → `posters`, `flyer` → `flyers`); generic fallback: if the slug ends in `s` and singularizing it round-trips, treat as plural. Add regression tests: every value the UI can offer must round-trip stably (`pluralizeDocType(pluralizeDocType(x)) === pluralizeDocType(x)`).
+2. **Server-side spec validation** in one place (`scripts/validate.js`), used by `renderJob()` itself so the CLI, the API, and the UI all get it:
+   - enums (`paperSize`, `orientation`, `outputs`, `colorIntent`), `dpi` range,
+   - `margin`/`bleed` must parse as CSS lengths (`0` | `0.5in` | `12mm` | `1in 0.75in`…) — reject `abc`, negative values,
+   - `template` must exist on disk; `imageSlots` paths must exist and stay inside the project; `content` values are strings,
+   - reject unknown top-level fields (typo protection: `paperSze` should error, not silently default).
+   - API returns field-level errors (`{ field, message }[]`); exit tests feed a malformed spec through both CLI and API.
+3. **Template metadata.** Each template declares what it's designed for in a `<meta name="template-config" content='{...}'>` block: recommended `paperSize`, `orientation`, `margin`, plus a human description. Selecting a template in the UI **auto-applies its recommendations**; a mismatch the user forces (certificate on Legal portrait) shows a visible warning, not silence. `templatetest.js` asserts every shipped template carries valid metadata.
+4. **Field-level UI validation.** Inline errors under each field as you type (reusing the same validator via a `/api/validate` endpoint); Render disabled while invalid, with the button naming the first problem ("Fix margin: 'abc' is not a length"). Job name: default to a slug of the template's title/headline content instead of `untitled`.
+
+### 6B — Redesign: modern, guided, visual
+
+Direction: keep the no-framework constraint (the state is small); rebuild `server/ui/` around a **guided flow that mirrors the Question Guard** instead of one undifferentiated form column.
+
+1. **Template gallery, not a dropdown.** At server start, render each template once with its example content to a small cached PNG thumbnail (the renderer already exists — reuse `renderJob` at dpi 40 into `server/.thumbs/`). Picking is visual; each card shows the template's paper/orientation badge and description from its metadata.
+2. **Three-step left rail:** ① Template (gallery) → ② Setup (destination, paper-size guard, layout — pre-filled from template metadata) → ③ Content (fields with Title-Cased labels, autosizing textareas, image-slot pickers that show thumbnails of `assets/`). Progress states make "what do I do next" self-answering. Paper size keeps its hard-stop treatment.
+3. **Preview pane upgrades:** paper-size badge with physical dimensions ("Legal · 8.5 × 14 in"), page count, fit-width / fit-page / 100% zoom presets replacing the raw slider, and page navigation for multi-page docs.
+4. **Recent outputs panel** — `/api/outputs` already exists and the UI never calls it. Show the last renders with open/reveal actions, so the app is also the place you *find* what you made.
+5. **Design system pass:** the UI should look like it was made by the tool it is — use the shipped Inter for the interface, one accent, generous spacing, consistent 8px rhythm, visible focus states, `prefers-color-scheme` dark variant. No CSS framework; one rewritten `style.css`.
+
+### 6C — Exit tests (extend `apptest.js`)
+
+- `posters` as doc type routes to `outputs/<project>/posters/` — **not** `posterses/`.
+- A spec with `margin: "abc"`, bad enum, unknown field, or missing template is rejected by CLI, API, and UI alike, with field-level messages.
+- Selecting the certificate template auto-sets landscape + Letter + margin 0; forcing Legal portrait shows the mismatch warning.
+- Gallery shows a thumbnail per template; Render stays disabled while any field is invalid and the button names the blocker.
+- Full `npm test` stays green.
+
+---
+
 ## Build Order & Dependencies
 
 ```

@@ -14,6 +14,8 @@ import puppeteer from 'puppeteer';
 import open from 'open';
 import { renderJob, composeDocument, applyDefaults } from '../scripts/render.js';
 import { PROJECT_ROOT, OUTPUTS_ROOT, outputDirFor } from '../scripts/paths.js';
+import { validateSpec } from '../scripts/validate.js';
+import { listTemplates } from '../scripts/templates.js';
 
 const UI_DIR = path.join(PROJECT_ROOT, 'server', 'ui');
 
@@ -46,11 +48,12 @@ await app.register(fastifyStatic, {
 
 app.get('/api/schema', async () => JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'schema.json'), 'utf8')));
 
-app.get('/api/templates', async () => {
-  const files = await fs.readdir(path.join(PROJECT_ROOT, 'templates'));
-  // `_`-prefixed templates are test fixtures, not authoring surface.
-  return files.filter((f) => f.endsWith('.html') && !f.startsWith('_')).sort();
-});
+// Each entry carries the template's declared config (paper, orientation, margin)
+// and its {{placeholders}}, so the UI configures itself on selection.
+app.get('/api/templates', async () => listTemplates());
+
+// The same validator the CLI and renderJob() use. The UI never re-implements it.
+app.post('/api/validate', async (req) => ({ errors: validateSpec(req.body) }));
 
 app.get('/api/jobs', async () => {
   const files = await fs.readdir(path.join(PROJECT_ROOT, 'jobs'));
@@ -68,11 +71,8 @@ app.get('/api/jobs/:name', async (req, reply) => {
 
 app.post('/api/jobs', async (req, reply) => {
   const spec = req.body;
-  try {
-    applyDefaults(spec);
-  } catch (err) {
-    return reply.code(400).send({ error: err.message });
-  }
+  const errors = validateSpec(spec);
+  if (errors.length) return reply.code(400).send({ error: 'Invalid job spec', errors });
   const file = `${path.basename(spec.name)}.json`;
   await fs.writeFile(path.join(PROJECT_ROOT, 'jobs', file), `${JSON.stringify(spec, null, 2)}\n`);
   return { saved: `jobs/${file}` };
@@ -123,7 +123,7 @@ app.post('/api/preview', async (req, reply) => {
   try {
     lastSpec = applyDefaults(req.body);
   } catch (err) {
-    return reply.code(400).send({ error: err.message });
+    return reply.code(400).send({ error: err.message, errors: err.errors ?? [] });
   }
   return { ok: true };
 });
@@ -146,7 +146,8 @@ app.post('/api/render', async (req, reply) => {
     const results = await renderJob(spec, { browser, autoOpen });
     return results.map((r) => ({ format: r.format, path: path.relative(PROJECT_ROOT, r.path).replaceAll('\\', '/') }));
   } catch (err) {
-    return reply.code(400).send({ error: err.message });
+    // SpecError carries field-level errors; anything else is a genuine render failure.
+    return reply.code(400).send({ error: err.message, errors: err.errors ?? [] });
   }
 });
 

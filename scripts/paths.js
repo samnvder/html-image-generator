@@ -62,11 +62,32 @@ const PLURAL_MAP = {
   handout: 'handouts',
 };
 
+const PLURAL_VALUES = new Set(Object.values(PLURAL_MAP));
+
+// The raw rule: singular -> plural. Never call this directly; see pluralizeDocType.
+function pluralizeSingular(slug) {
+  if (PLURAL_MAP[slug]) return PLURAL_MAP[slug];
+  if (/(s|x|z|ch|sh)$/.test(slug)) return `${slug}es`;
+  if (/[^aeiou]y$/.test(slug)) return `${slug.slice(0, -1)}ies`;
+  return `${slug}s`;
+}
+
+function singularizeGuess(slug) {
+  if (/ies$/.test(slug)) return `${slug.slice(0, -3)}y`;
+  if (/(ses|xes|zes|ches|shes)$/.test(slug)) return slug.slice(0, -2);
+  if (/[^s]s$/.test(slug)) return slug.slice(0, -1);
+  return slug;
+}
+
+// MUST be idempotent: the UI's doc-type combo is populated from existing
+// outputs/<project>/* folder names, which are already plural. Re-pluralizing
+// them produced `posters` -> `posterses`. So: if the input round-trips as a
+// plural, it already is one and passes through unchanged.
 export function pluralizeDocType(docTypeSlug) {
+  if (PLURAL_VALUES.has(docTypeSlug)) return docTypeSlug;
   if (PLURAL_MAP[docTypeSlug]) return PLURAL_MAP[docTypeSlug];
-  if (/(s|x|z|ch|sh)$/.test(docTypeSlug)) return `${docTypeSlug}es`;
-  if (/[^aeiou]y$/.test(docTypeSlug)) return `${docTypeSlug.slice(0, -1)}ies`;
-  return `${docTypeSlug}s`;
+  if (pluralizeSingular(singularizeGuess(docTypeSlug)) === docTypeSlug) return docTypeSlug;
+  return pluralizeSingular(docTypeSlug);
 }
 
 export function timestamp(date = new Date()) {

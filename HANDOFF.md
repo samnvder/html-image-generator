@@ -32,7 +32,8 @@ A **deterministic image generator for print**. Instead of a diffusion model gues
 - `selftest.js` — **24/24.** Letter PDF exactly 612×792 pt, Legal 612×1008 pt, Letter PNG @300 exactly 2550×3300 px reading back `density: 300`. Path-traversal and Windows-reserved-name rejection. Both build-time probes.
 - `templatetest.js` — **30/30.** All three reference templates: correct page box, expected page count, no unfilled `{{placeholders}}` surviving into the PDF, every declared font embedded, no silent fallback to Arial.
 - `fonttest.js` — WOFF2 and TTF both embed and subset.
-- `apptest.js` — **25/25.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, and a UI render matches a CLI render.
+- `apptest.js` — **43/43.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, template config drives the form, invalid fields block Render with inline messages, and a UI render matches a CLI render.
+- `validatetest.js` — **77/77.** Pluralize idempotency (the `posterses` regression), CSS-length parsing, and 24 malformed-spec cases each rejected on the right field.
 
 **Next action is Phase 4** (gated CMYK via Ghostscript) or Phase 5 (print and measure). Both are optional; the MVP is done.
 
@@ -94,7 +95,15 @@ Slugification doubles as a security boundary: reject path traversal (`../../etc`
 
 The UI (`server/ui/`, plain HTML/JS, no framework) is the Question Guard as a form: everything defaulted and shown for correction, **paper size demanded** — the Render button stays disabled and reads "Choose a paper size" until you pick one. The preview iframe renders the composed document through the Paged.js polyfill (`composeDocument(spec, { preview: true })`) so page boxes are discrete and true-size; chokidar watches `templates/` and `jobs/` and pushes a WebSocket message that reloads the iframe.
 
-**Next: Phase 4** (gated CMYK via Ghostscript) or **Phase 5** (print one Letter and one Legal page, measure with a ruler). Both optional.
+**Phase 6A is DONE (2026-07-09)** — validation and correctness, prompted by the first real user session. Three bugs it fixed:
+
+1. **`posters` → `posterses/`.** The UI's doc-type combo is populated from existing `outputs/*` folder names, which are already plural, and `pluralizeDocType()` pluralized them again. It is now **idempotent** — `pluralizeDocType(pluralizeDocType(x)) === pluralizeDocType(x)` for every doc type the UI can offer.
+2. **No validation anywhere.** `scripts/validate.js` is now the single validator, called from inside `applyDefaults()`, so the CLI, the HTTP API, and the UI all enforce it and cannot drift. It rejects bad enums, out-of-range DPI, non-CSS-length margins, missing/escaping templates, nonexistent image slots, and **unknown keys** (a typo'd `paperSze` errors instead of silently defaulting). Errors are field-level: `[{ field, message }]`.
+3. **The UI let every wrong combination happen silently.** Templates now declare `<meta name="template-config">` (paper, orientation, margin, outputs, description, titleField). Selecting one applies orientation/margin/outputs and **recommends** a paper size; picking a different one shows a mismatch warning. Invalid fields get inline messages, and Render disables with the button naming the blocker ("Fix margin"). Job names derive from content instead of `untitled`.
+
+**Deliberate deviation:** the plan said template selection should auto-apply `paperSize`. It must not — that would silently choose the one variable the Question Guard exists to protect. Templates recommend; the user still confirms.
+
+**Next: Phase 6B — the guided redesign** (template gallery with rendered thumbnails, three-step rail, preview toolbar, recent-outputs panel, design-system pass). Phase 4 (gated CMYK) and Phase 5 (print and measure) remain open.
 
 ---
 
@@ -132,5 +141,8 @@ Data merge (CSV → N certificates), n-up imposition / label sheets (Avery), A4 
 - **Chromium holds keep-alive sockets open after `page.close()`.** A bare `server.close()` on the throwaway render server hangs forever. Call `server.closeAllConnections()` first — this cost real time to find, and it only showed up on multi-render (`variants`) jobs.
 - **`sharp`'s `.stats()` ignores pipeline ops** like `.extract()` — it always measures the source image. To measure a region, pull `.raw()` pixels. A test that gets this wrong reports a false failure.
 - A template must **not** declare `@page { size: … }` — the renderer injects size/margin/bleed from the job spec, and a hardcoded size wins silently.
+- **`pluralizeDocType()` must stay idempotent.** The UI feeds it its own output (folder names are already plural). Any change to it needs `pluralizeDocType(pluralizeDocType(x)) === pluralizeDocType(x)` to hold, which `validatetest.js` asserts. Known limitation: `canvas` is treated as already-plural.
+- **Validation lives in exactly one place** (`scripts/validate.js`, called from `applyDefaults()`). Do not add a second copy in the UI — it will drift. The UI calls `POST /api/validate`.
+- In the UI, the form's `input` handler keys off `e.target.name`. Dispatching `input` on the **form** rather than the changed control skips template-config application — a trap that produced two false test failures.
 - On Windows, Ghostscript's binary is **`gswin64c.exe`**, not `gs` — the unmaintained `press-ready` CLI trips on exactly this.
 - `press-ready` is **reference material only** (last release Aug 2020, hardcoded to Japan Color 2001 Coated). Mine its Ghostscript flags from `src/ghostScript.ts`; do not depend on it.

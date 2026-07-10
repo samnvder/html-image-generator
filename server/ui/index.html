@@ -27,7 +27,15 @@
       </label>
     </section>
 
-    <!-- The one variable that is never defaulted. -->
+    <section>
+      <h2>Template</h2>
+      <label>
+        <select name="template" required></select>
+      </label>
+      <p class="hint" id="template-desc"></p>
+    </section>
+
+    <!-- The one variable that is never defaulted. A template may recommend, never choose. -->
     <section class="guard" id="guard">
       <h2>Paper size <span class="req">required</span></h2>
       <p class="hint">Never defaulted. A flyer printed on the wrong stock is a wasted print run.</p>
@@ -37,11 +45,10 @@
       </div>
     </section>
 
+    <p class="warning" id="mismatch" hidden></p>
+
     <section>
       <h2>Layout</h2>
-      <label>Template
-        <select name="template" required></select>
-      </label>
       <label>Orientation
         <select name="orientation">
           <option value="portrait" selected>Portrait</option>

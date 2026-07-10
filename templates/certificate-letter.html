@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="template-config" content='{
+  "title": "Certificate",
+  "description": "Landscape, bordered, with a single recipient field. Batch-renders via variants.",
+  "paperSize": "letter",
+  "orientation": "landscape",
+  "margin": "0",
+  "outputs": ["pdf"],
+  "titleField": "recipient"
+}'>
 <title>{{title}}</title>
 <link rel="stylesheet" href="/templates/base.css">
 <style>

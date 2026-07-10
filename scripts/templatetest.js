@@ -10,6 +10,8 @@ import puppeteer from 'puppeteer';
 import { renderJob } from './render.js';
 import { pdfInfo, inspectFonts } from './pdfinfo.js';
 import { PROJECT_ROOT } from './paths.js';
+import { listTemplates } from './templates.js';
+import { isCssLength } from './validate.js';
 
 let passed = 0;
 let failed = 0;
@@ -42,6 +44,18 @@ const CASES = [
     fonts: ['SourceSerif', 'Inter'],
   },
 ];
+
+console.log('— Template metadata —');
+const declared = await listTemplates();
+check('three authoring templates are listed', declared.length === 3, declared.map((t) => t.file).join(', '));
+for (const t of declared) {
+  check(`${t.file}: declares template-config`, Object.keys(t.config).length > 0);
+  check(`${t.file}: config names a valid paperSize`, ['letter', 'legal'].includes(t.config.paperSize), t.config.paperSize);
+  check(`${t.file}: config names a valid orientation`, ['portrait', 'landscape'].includes(t.config.orientation), t.config.orientation);
+  check(`${t.file}: config margin is a CSS length`, isCssLength(t.config.margin ?? ''), JSON.stringify(t.config.margin));
+  check(`${t.file}: has a description`, typeof t.description === 'string' && t.description.length > 10);
+  check(`${t.file}: titleField names a real placeholder`, t.placeholders.includes(t.config.titleField), `${t.config.titleField} not in [${t.placeholders}]`);
+}
 
 const browser = await puppeteer.launch();
 try {

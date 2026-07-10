@@ -27,15 +27,15 @@ function readSpec() {
   const imageSlots = {};
   for (const el of form.querySelectorAll('[data-field]')) {
     const key = el.dataset.field;
-    if (key.startsWith('image:')) imageSlots[key.slice(6)] = el.value;
+    // An empty image slot means "no image", not "an image at the empty path".
+    if (key.startsWith('image:')) { if (el.value.trim()) imageSlots[key.slice(6)] = el.value.trim(); }
     else content[key] = el.value;
   }
 
-  return {
+  const spec = {
     name: f.get('name')?.trim() || 'untitled',
     project: f.get('project')?.trim() || '',
     docType: f.get('docType')?.trim() || '',
-    paperSize: f.get('paperSize') || '',
     orientation: f.get('orientation'),
     template: f.get('template'),
     margin: f.get('margin'),
@@ -46,6 +46,91 @@ function readSpec() {
     content,
     imageSlots,
   };
+  // Omit rather than send "" — the validator should say "required", not "invalid".
+  const paper = f.get('paperSize');
+  if (paper) spec.paperSize = paper;
+  return spec;
+}
+
+// ---- template config -----------------------------------------------------
+// Templates declare what they were built for. Selecting one applies its
+// orientation / margin / outputs, and *recommends* a paper size — it never
+// picks the paper size for you. That variable is the user's to confirm.
+
+const TEMPLATES = new Map();
+const templateConfig = () => TEMPLATES.get(form.template.value)?.config ?? {};
+
+function applyTemplateConfig() {
+  const c = templateConfig();
+  $('#template-desc').textContent = TEMPLATES.get(form.template.value)?.description ?? '';
+  if (c.orientation) form.orientation.value = c.orientation;
+  if (c.margin !== undefined) form.margin.value = c.margin;
+  if (Array.isArray(c.outputs)) {
+    form.pdf.checked = c.outputs.includes('pdf');
+    form.png.checked = c.outputs.includes('png');
+  }
+  // A flowing multi-page template has no meaningful screenshot.
+  form.png.disabled = Boolean(c.pdfOnly);
+  if (c.pdfOnly) form.png.checked = false;
+}
+
+// Name the job after its own title field instead of shipping "untitled".
+function suggestJobName() {
+  const c = templateConfig();
+  const el = c.titleField && form.querySelector(`[data-field="${c.titleField}"]`);
+  const slug = (el?.value ?? '').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  if (slug && (form.name.value === 'untitled' || form.name.value === '')) form.name.value = slug;
+}
+
+function updateRecommendation() {
+  const c = templateConfig();
+  const chosen = new FormData(form).get('paperSize');
+
+  for (const label of form.querySelectorAll('.radio')) {
+    const value = label.querySelector('input').value;
+    label.classList.toggle('recommended', c.paperSize === value);
+  }
+
+  const warn = $('#mismatch');
+  const problems = [];
+  if (chosen && c.paperSize && chosen !== c.paperSize) problems.push(`${TEMPLATES.get(form.template.value)?.title ?? 'This template'} is designed for ${c.paperSize}, not ${chosen}`);
+  if (c.orientation && form.orientation.value !== c.orientation) problems.push(`it expects ${c.orientation} orientation`);
+  if (c.margin !== undefined && form.margin.value !== c.margin) problems.push(`its intended margin is ${c.margin === '0' ? 'none' : c.margin}`);
+
+  warn.hidden = problems.length === 0;
+  warn.textContent = problems.length ? `Heads up — ${problems.join('; ')}. It will still render, but may not look right.` : '';
+}
+
+// ---- validation ----------------------------------------------------------
+// Uses POST /api/validate, the same validator renderJob() enforces. The UI has
+// no second copy of the rules to drift out of sync.
+
+let currentErrors = [];
+
+function paintErrors(errors) {
+  for (const el of form.querySelectorAll('.field-error')) el.remove();
+  for (const el of form.querySelectorAll('.invalid')) el.classList.remove('invalid');
+
+  for (const { field, message } of errors) {
+    const input = form.querySelector(`[name="${field}"]`) ?? form.querySelector(`[data-field="${field.replace(/^content\./, '')}"]`);
+    if (!input) continue;
+    input.classList.add('invalid');
+    const note = document.createElement('small');
+    note.className = 'field-error';
+    note.textContent = message;
+    (input.closest('label') ?? input).after(note);
+  }
+}
+
+async function validateNow() {
+  const res = await fetch('/api/validate', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(readSpec()),
+  });
+  currentErrors = (await res.json()).errors ?? [];
+  // "Choose a paper size" is guidance, not an error — the guard panel says it.
+  paintErrors(currentErrors.filter((e) => e.field !== 'paperSize'));
+  updateGuard();
 }
 
 // ---- the guard: paper size is never defaulted ----------------------------
@@ -53,9 +138,15 @@ function readSpec() {
 function updateGuard() {
   const chosen = Boolean(new FormData(form).get('paperSize'));
   guard.classList.toggle('satisfied', chosen);
-  renderBtn.disabled = !chosen;
-  renderBtn.textContent = chosen ? 'Render' : 'Choose a paper size';
-  return chosen;
+
+  const blocking = currentErrors.filter((e) => e.field !== 'paperSize');
+  renderBtn.disabled = !chosen || blocking.length > 0;
+
+  if (!chosen) renderBtn.textContent = 'Choose a paper size';
+  else if (blocking.length) renderBtn.textContent = `Fix ${blocking[0].field || 'the job spec'}`;
+  else renderBtn.textContent = 'Render';
+
+  return chosen && blocking.length === 0;
 }
 
 // ---- preview -------------------------------------------------------------
@@ -145,8 +236,7 @@ async function loadContentFields(template, values = {}, slots = {}) {
   const box = $('#content-fields');
   box.innerHTML = '';
   if (!template) return;
-  const html = await (await fetch(`/templates/${template}`)).text();
-  const keys = [...new Set([...html.matchAll(/\{\{([\w:.-]+)\}\}/g)].map((m) => m[1]))];
+  const keys = TEMPLATES.get(template)?.placeholders ?? [];
 
   for (const key of keys) {
     const isImage = key.startsWith('image:');
@@ -213,9 +303,14 @@ $('#save-job').addEventListener('click', async () => {
   });
   const body = await res.json();
   const dest = $('#dest');
-  dest.textContent = res.ok ? `✓ saved ${body.saved}` : `✕ ${body.error}`;
+  if (res.ok) dest.textContent = `✓ saved ${body.saved}`;
+  else {
+    paintErrors(body.errors ?? []);
+    const first = body.errors?.[0];
+    dest.textContent = first ? `✕ ${first.field}: ${first.message}` : `✕ ${body.error}`;
+  }
   dest.classList.toggle('bad', !res.ok);
-  setTimeout(refreshDest, 1600);
+  setTimeout(refreshDest, 2500);
   if (res.ok) refreshJobs();
 });
 
@@ -244,7 +339,8 @@ $('#load-job').addEventListener('click', async () => {
 // ---- wiring --------------------------------------------------------------
 
 function onChange() {
-  updateGuard();
+  updateRecommendation();
+  validateNow();
   refreshDest();
   schedulePreview();
   $('#paged-note').hidden = !(form.cropMarks.checked || (form.bleed.value && form.bleed.value !== '0'));
@@ -254,8 +350,13 @@ form.addEventListener('input', (e) => {
   // The job picker sits inside the form but isn't part of the spec. Without this,
   // choosing a job kicks off a preview of the spec you're about to replace.
   if (e.target.id === 'job-picker') return;
-  if (e.target.name === 'template') loadContentFields(form.template.value).then(onChange);
-  else onChange();
+  if (e.target.name === 'template') {
+    applyTemplateConfig();
+    loadContentFields(form.template.value).then(() => { suggestJobName(); onChange(); });
+  } else {
+    if (e.target.dataset?.field) suggestJobName();
+    onChange();
+  }
 });
 $('#zoom').addEventListener('input', applyZoom);
 
@@ -288,7 +389,13 @@ function connect() {
 // ---- boot ----------------------------------------------------------------
 
 const templates = await (await fetch('/api/templates')).json();
-form.template.innerHTML = templates.map((t) => `<option value="${t}">${t}</option>`).join('');
+for (const t of templates) TEMPLATES.set(t.file, t);
+form.template.innerHTML = templates
+  .map((t) => `<option value="${t.file}">${t.title} — ${t.config.paperSize ?? '?'} ${t.config.orientation ?? ''}</option>`)
+  .join('');
+$('#template-desc').textContent = TEMPLATES.get(form.template.value)?.description ?? '';
+
+applyTemplateConfig();
 await loadContentFields(form.template.value);
 await Promise.all([refreshProjects(), refreshJobs()]);
 connect();

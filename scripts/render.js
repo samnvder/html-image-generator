@@ -21,6 +21,7 @@ import sharp from 'sharp';
 import {
   PAPER_SIZES, PROJECT_ROOT, resolveOutputPath, writeLatest,
 } from './paths.js';
+import { assertValidSpec } from './validate.js';
 
 const DEFAULTS = {
   orientation: 'portrait',
@@ -54,15 +55,12 @@ const MIME = {
   '.pdf': 'application/pdf',
 };
 
+// Validate before defaults, so a typo'd key ("paperSze") errors instead of
+// silently taking a default. Every caller — CLI, API, UI — comes through here.
 export function applyDefaults(spec) {
-  const s = { ...DEFAULTS, ...spec };
-  for (const field of ['name', 'project', 'docType', 'paperSize', 'template']) {
-    if (!s[field]) throw new Error(`Job spec is missing required field "${field}"`);
-  }
-  if (!PAPER_SIZES[s.paperSize]) {
-    throw new Error(`Unknown paperSize "${s.paperSize}" — must be one of: ${Object.keys(PAPER_SIZES).join(', ')}`);
-  }
-  return s;
+  assertValidSpec(spec);
+  const { $schema, ...clean } = spec;
+  return { ...DEFAULTS, ...clean };
 }
 
 export function pageDims(spec) {
@@ -202,7 +200,8 @@ export async function renderJob(rawSpec, opts = {}) {
   const results = [];
 
   try {
-    const runs = [spec, ...spec.variants.map((v) => ({ ...spec, ...v, variants: [] }))];
+    // A variant's overrides can be just as wrong as a base spec's. Validate each.
+    const runs = [spec, ...spec.variants.map((v) => assertValidSpec({ ...spec, ...v, variants: [] }))];
     for (const run of runs) {
       const { html, paged } = await composeDocument(run);
       const doc = await serveDocument(html);

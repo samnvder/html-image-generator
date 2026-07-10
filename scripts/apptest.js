@@ -159,6 +159,102 @@ try {
   check('preview resumes when the tab becomes visible', recovered);
   await previewState();
 
+  console.log('— Routing regression: the posterses bug —');
+  const routed = await page.evaluate(async () => {
+    const r = await fetch('/api/resolve-path', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ project: 'South End', docType: 'posters' }),
+    });
+    return (await r.json()).dir;
+  });
+  check('docType "posters" routes to outputs/south-end/posters/', routed === 'outputs/south-end/posters/', routed);
+  check('never posterses', !routed.includes('posterses'), routed);
+
+  console.log('— API rejects invalid specs with field-level errors —');
+  const rejected = await page.evaluate(async () => {
+    const bad = {
+      name: 'x', project: 'Demo', docType: 'probe', paperSize: 'letter',
+      template: 'poster-letter.html', margin: 'abc', dpi: 99999, orientation: 'sideways',
+    };
+    const r = await fetch('/api/render', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: bad, autoOpen: false }),
+    });
+    return { status: r.status, body: await r.json() };
+  });
+  check('POST /api/render rejects a bad spec with 400', rejected.status === 400, `${rejected.status}`);
+  const badFields = (rejected.body.errors ?? []).map((e) => e.field);
+  check('error names the offending fields', ['margin', 'dpi', 'orientation'].every((f) => badFields.includes(f)), badFields.join(', '));
+
+  console.log('— Template config drives the form —');
+  await loadJob('poster-example.json');
+  const cfg = await page.evaluate(async () => {
+    const f = document.forms.spec;
+    f.template.value = 'certificate-letter.html';
+    // Dispatch on the select, as a real change does — the handler keys off e.target.
+    f.template.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1000));
+    return {
+      orientation: f.orientation.value,
+      margin: f.margin.value,
+      png: f.png.checked,
+      recommendedIsLetter: document.querySelector('.radio.recommended input')?.value,
+      desc: document.getElementById('template-desc').textContent,
+      // The guard must survive: selecting a template must not choose paper size.
+      paperStillChosenByUser: new FormData(f).get('paperSize'),
+    };
+  });
+  check('certificate template applies landscape', cfg.orientation === 'landscape', cfg.orientation);
+  check('certificate template applies margin 0', cfg.margin === '0', cfg.margin);
+  check('certificate template turns PNG off', cfg.png === false);
+  check('template recommends a paper size', cfg.recommendedIsLetter === 'letter', String(cfg.recommendedIsLetter));
+  check('template description is shown', cfg.desc.length > 10, cfg.desc);
+  check('template never picks paper size for you (the Guard holds)', cfg.paperStillChosenByUser === 'letter', String(cfg.paperStillChosenByUser));
+
+  console.log('— Mismatch warning —');
+  const mismatch = await page.evaluate(async () => {
+    const f = document.forms.spec;
+    const legal = f.querySelector('[name=paperSize][value=legal]');
+    legal.checked = true;
+    legal.dispatchEvent(new Event('input', { bubbles: true }));
+    f.orientation.value = 'portrait';
+    f.orientation.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1000));
+    const w = document.getElementById('mismatch');
+    return { hidden: w.hidden, text: w.textContent };
+  });
+  check('forcing certificate onto Legal portrait warns', !mismatch.hidden, 'warning stayed hidden');
+  check('warning explains the mismatch', /designed for letter/i.test(mismatch.text) && /landscape/i.test(mismatch.text), mismatch.text);
+
+  console.log('— Inline field validation blocks Render —');
+  const invalid = await page.evaluate(async () => {
+    const f = document.forms.spec;
+    f.margin.value = 'abc';
+    f.margin.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1000));
+    const btn = document.getElementById('render');
+    return {
+      disabled: btn.disabled,
+      label: btn.textContent,
+      marked: f.margin.classList.contains('invalid'),
+      message: f.querySelector('.field-error')?.textContent ?? '',
+    };
+  });
+  check('Render disabled while a field is invalid', invalid.disabled);
+  check('button names the blocking field', invalid.label === 'Fix margin', invalid.label);
+  check('the offending input is marked invalid', invalid.marked);
+  check('an inline message explains why', /CSS length/i.test(invalid.message), invalid.message);
+
+  const recovered2 = await page.evaluate(async () => {
+    const f = document.forms.spec;
+    f.margin.value = '0.5in';
+    f.margin.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1000));
+    return { disabled: document.getElementById('render').disabled, errors: document.querySelectorAll('.field-error').length };
+  });
+  check('fixing the field re-enables Render', !recovered2.disabled);
+  check('inline errors clear', recovered2.errors === 0, `${recovered2.errors} left`);
+
   console.log('— UI render == CLI render —');
   const spec = JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'poster-example.json'), 'utf8'));
   const uiSpec = { ...spec, name: 'apptest-ui' };
