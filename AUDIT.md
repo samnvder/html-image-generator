@@ -57,6 +57,7 @@ Unfilled `{{placeholders}}` log to the *server* console only. The UI user and AP
 - **B4. No CI.** A public repo with 212 assertions and nothing runs them on push. One GitHub Actions workflow (`npm ci && npm test`, ubuntu-latest — Puppeteer downloads its own Chromium).
 - **B5. Favicon/title polish** for the app tab. Trivial.
 - **B6. Dependency majors available:** puppeteer 25 (ESM-only, Node ≥22 — both fine for us), sharp 0.35, chokidar 5, @fastify/static 9, open 11. No urgency; upgrade deliberately, not reflexively.
+  **DONE (7E).** All five upgraded; nothing needed pinning back. `engines.node` moved `>=20` → `>=22` to match puppeteer 25's floor (CI already ran Node 22). Full cold suite green on the first attempt: puppeteer's ESM-only move is a no-op for us (we were already ESM), and the `executablePath()` async change touches no call site of ours. `pagedjs` stays at 0.4.3 — still no 0.5 stable.
 
 ## C. Research notes (what was checked, what came back)
 

@@ -15,7 +15,11 @@ export async function pdfInfo(file) {
   for (let i = 1; i <= doc.numPages; i++) {
     text += `${(await (await doc.getPage(i)).getTextContent()).items.map((it) => it.str).join(' ')} `;
   }
-  const out = { pages: doc.numPages, width: x1 - x0, height: y1 - y0, text };
+  // Read the Info dict through pdf.js, not a regex: pdf-lib writes /Author as a
+  // UTF-16BE hex string (`/Author <FEFF0053…>`), so a `/Author \((.*)\)` match would
+  // report a false failure. Chromium writes /Title as a literal. Both decode here.
+  const { info } = await doc.getMetadata();
+  const out = { pages: doc.numPages, width: x1 - x0, height: y1 - y0, text, info };
   await task.destroy();
   return out;
 }

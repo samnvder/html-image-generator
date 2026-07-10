@@ -94,6 +94,23 @@ try {
     check('no fallback to Arial/Times (fonts actually loaded)',
       !embedded.fonts.some((n) => /Arial|TimesNewRoman|LiberationSerif/i.test(n)),
       embedded.fonts.join(', '));
+
+    // B2 — Chromium sets /Title from <title> but exposes no Author/Subject/Creator.
+    // A pdf-lib post-step stamps them. (It writes them as UTF-16BE hex strings, so
+    // read the Info dict through pdf.js rather than regexing for `/Author (…)`.)
+    check(`metadata: /Author is the project ("${spec.project}")`, info.info.Author === spec.project, String(info.info.Author));
+    check(`metadata: /Subject is the docType ("${spec.docType}")`, info.info.Subject === spec.docType, String(info.info.Subject));
+    check('metadata: /Creator is this tool', info.info.Creator === 'HTML Image Generator', String(info.info.Creator));
+    check('metadata: Chromium\'s /Title from <title> survives the post-step',
+      typeof info.info.Title === 'string' && info.info.Title.length > 0, String(info.info.Title));
+
+    // The post-step must not compress the font descriptors into an /ObjStm — that is
+    // exactly what makes these PDFs inspectable by regex.
+    check('post-step writes no object streams', embedded.objStreams === 0, `${embedded.objStreams}`);
+    // Chromium tags its PDFs (accessibility for free). Re-saving must not drop that.
+    const raw = (await fs.readFile(pdf)).toString('latin1');
+    check('post-step preserves the tagged-PDF structure tree',
+      raw.includes('/StructTreeRoot') && raw.includes('/MarkInfo'));
   }
 } finally {
   await browser.close();

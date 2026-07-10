@@ -15,6 +15,7 @@ import sharp from 'sharp';
 import { PROJECT_ROOT, isInside, fromOutputsUrlPath } from './paths.js';
 import { pdfInfo, inspectFonts } from './pdfinfo.js';
 import { renderJob } from './render.js';
+import { validateSpec } from './validate.js';
 import { useTempOutputs } from './testenv.js';
 
 // Set before the server is spawned, so the child inherits it and parent and child
@@ -94,11 +95,12 @@ const loadJob = async (file) => {
 const legalTemplate = path.join(PROJECT_ROOT, 'templates', 'legal-form.html');
 const originalLegal = await fs.readFile(legalTemplate, 'utf8');
 
-// Job files this suite creates. Both are removed in the finally block — a test must
-// not leave the user's jobs/ picker holding its scratch work.
+// Every UI render now persists its spec (B1), so this suite scatters job files. Snapshot
+// jobs/ up front and delete whatever is new in the finally block — a test must not leave
+// the user's picker holding its scratch work.
 const JOBS_DIR = path.join(PROJECT_ROOT, 'jobs');
-const SAVED_JOB = path.join(JOBS_DIR, 'menu-spring.json');
 const HIDDEN_JOB = path.join(JOBS_DIR, '_apptest-hidden.json');
+const jobsBefore = new Set(await fs.readdir(JOBS_DIR));
 
 try {
   console.log('— Cold start —');
@@ -490,6 +492,21 @@ try {
 
   check('a clean render reports no warnings', uiRes.warnings.length === 0, JSON.stringify(uiRes.warnings));
 
+  console.log('— B1: a UI render is as reproducible as a CLI one —');
+  // The Guard's promise is that the job spec is the saved record of one generation.
+  // The CLI enforces it structurally; the UI used to render without persisting anything.
+  check('the render response names the spec it saved', uiRes.savedSpec === 'jobs/apptest-ui.json', String(uiRes.savedSpec));
+  const savedPath = path.join(PROJECT_ROOT, 'jobs', 'apptest-ui.json');
+  const savedRaw = await fs.readFile(savedPath, 'utf8').catch(() => null);
+  check('the spec file exists on disk', savedRaw !== null);
+  const savedSpec = savedRaw && JSON.parse(savedRaw);
+  check('the saved spec round-trips through the validator', savedSpec && validateSpec(savedSpec).length === 0,
+    JSON.stringify(savedSpec ? validateSpec(savedSpec) : 'unreadable'));
+  check('the saved spec reproduces the render it came from',
+    savedSpec?.template === spec.template && savedSpec?.paperSize === spec.paperSize
+      && JSON.stringify(savedSpec?.content) === JSON.stringify(spec.content),
+    JSON.stringify({ template: savedSpec?.template, paperSize: savedSpec?.paperSize }));
+
   const uiPdf = fromOutputsUrlPath(uiRes.outputs.find((r) => r.format === 'pdf').path);
   const cliPdf = cliRes.find((r) => r.format === 'pdf').path;
   const [uiInfo, cliInfo] = await Promise.all([pdfInfo(uiPdf), pdfInfo(cliPdf)]);
@@ -561,9 +578,38 @@ try {
       });
       return r.status;
     }, { ...posterSpec, name: 'apptest-after-crash-2', outputs: ['pdf'] })) === 200);
+
+  console.log('— B3: image slots offer the real assets —');
+  await loadJob('poster-example.json');
+  const slotUi = await page.evaluate(async () => {
+    const assets = await (await fetch('/api/assets')).json();
+    const input = document.querySelector('[data-field="image:background"]');
+    const options = [...document.querySelectorAll('#assets option')].map((o) => o.value);
+    const img = input.parentElement.querySelector('img.slot-preview');
+    // The example job already points at a real asset, so the preview should be showing.
+    const shownFor = { src: img?.getAttribute('src'), hidden: img?.hidden, natural: img?.naturalWidth ?? 0 };
+
+    // Point it at a path that doesn't exist: the preview must hide, not show a broken icon.
+    input.value = '/assets/definitely-not-here.png';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 700));
+    const afterBadPath = img?.hidden;
+
+    return { assets, options, listAttr: input.getAttribute('list'), shownFor, afterBadPath };
+  });
+  check('GET /api/assets finds the placeholder images',
+    slotUi.assets.includes('/assets/placeholder-background.png') && slotUi.assets.includes('/assets/placeholder-seal.png'),
+    slotUi.assets.join(', '));
+  check('the slot input is wired to the assets datalist', slotUi.listAttr === 'assets', String(slotUi.listAttr));
+  check('the datalist offers every asset', slotUi.options.length === slotUi.assets.length,
+    `${slotUi.options.length} options vs ${slotUi.assets.length} assets`);
+  check('a slot with a real path shows a live preview',
+    slotUi.shownFor.hidden === false && slotUi.shownFor.natural > 0, JSON.stringify(slotUi.shownFor));
+  check('a slot with a bad path hides the preview', slotUi.afterBadPath === true, String(slotUi.afterBadPath));
 } finally {
   await fs.writeFile(legalTemplate, originalLegal);
-  await Promise.all([SAVED_JOB, HIDDEN_JOB].map((f) => fs.rm(f, { force: true })));
+  const strays = (await fs.readdir(JOBS_DIR)).filter((f) => !jobsBefore.has(f));
+  await Promise.all(strays.map((f) => fs.rm(path.join(JOBS_DIR, f), { force: true })));
   await browser.close();
   server.kill();
 }

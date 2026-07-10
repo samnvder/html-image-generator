@@ -18,8 +18,16 @@ const THUMB_DPI = 48; // Letter -> 408x528 px
 const mtime = async (file) => fs.stat(file).then((s) => s.mtimeMs, () => 0);
 
 // The example job that showcases a template, if one exists.
+//
+// `*-example.json` files are checked first. Every UI render now saves a job spec (B1),
+// so "the first job that happens to name this template" would let a job called
+// `aaa.json` quietly become the poster's showcase.
+const isExample = (f) => f.endsWith('-example.json');
+
 async function exampleJobFor(templateFile) {
-  const files = (await fs.readdir(JOBS_DIR)).filter((f) => f.endsWith('.json') && f !== 'schema.json');
+  const files = (await fs.readdir(JOBS_DIR))
+    .filter((f) => f.endsWith('.json') && f !== 'schema.json')
+    .sort((a, b) => (isExample(b) - isExample(a)) || a.localeCompare(b));
   for (const f of files) {
     try {
       const spec = JSON.parse(await fs.readFile(path.join(JOBS_DIR, f), 'utf8'));

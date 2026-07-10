@@ -473,6 +473,19 @@ button.ghost:hover { background: var(--panel-2); filter: none; }
 .file a { color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file a:hover { text-decoration: underline; }
 .file .when { margin-left: auto; flex: none; color: var(--faint); font-size: 11px; white-space: nowrap; }
+/* Beside an image-slot input: what that path actually resolves to. Hidden when the
+   image fails to load, so a typo shows up as an absence rather than a broken icon. */
+.slot-preview {
+  display: block;
+  margin-top: 6px;
+  max-width: 100%;
+  max-height: 84px;
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+  object-fit: contain;
+  background: var(--panel-2);
+}
+
 .file .err, .panel .err { color: var(--bad); font-family: ui-monospace, monospace; white-space: pre-wrap; }
 
 /* A render that succeeded but left holes in the document. Not an error — the file

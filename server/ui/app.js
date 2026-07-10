@@ -324,6 +324,28 @@ const humanize = (key) => key
   .replace(/[-_]/g, ' ')
   .replace(/^./, (c) => c.toUpperCase());
 
+// Every image file under assets/, offered to the image-slot inputs.
+let ASSETS = [];
+
+// A slot input gets a <datalist> of real assets and a preview of whatever it points
+// at. The preview hides itself when the path doesn't load, so a typo is visible.
+function attachSlotPreview(label, input) {
+  const img = document.createElement('img');
+  img.className = 'slot-preview';
+  img.alt = '';
+  img.hidden = true;
+  const sync = () => {
+    const src = input.value.trim();
+    if (!src) { img.hidden = true; return; }
+    img.src = src;
+  };
+  img.onload = () => { img.hidden = false; };
+  img.onerror = () => { img.hidden = true; };
+  input.addEventListener('input', sync);
+  label.appendChild(img);
+  sync();
+}
+
 async function loadContentFields(template, values = {}, slots = {}) {
   const box = $('#content-fields');
   box.innerHTML = '';
@@ -341,11 +363,20 @@ async function loadContentFields(template, values = {}, slots = {}) {
     if (long) input.rows = 3;
     input.dataset.field = key;
     input.value = current;
-    if (isImage) input.placeholder = '/assets/…';
+    if (isImage) {
+      input.placeholder = '/assets/…';
+      input.setAttribute('list', 'assets');
+    }
     label.appendChild(input);
+    if (isImage) attachSlotPreview(label, input);
     box.appendChild(label);
   }
   if (!keys.length) box.innerHTML = '<p class="hint">This template has no content fields.</p>';
+}
+
+async function refreshAssets() {
+  ASSETS = await (await fetch('/api/assets')).json();
+  $('#assets').innerHTML = ASSETS.map((a) => `<option value="${a}">`).join('');
 }
 
 // ---- render --------------------------------------------------------------
@@ -404,7 +435,14 @@ renderBtn.addEventListener('click', async () => {
       result.appendChild(note);
     }
     for (const r of body.outputs) result.appendChild(fileRow(r));
+    if (body.savedSpec) {
+      const note = document.createElement('p');
+      note.className = 'hint';
+      note.textContent = `Spec saved to ${body.savedSpec} — this render is reproducible.`;
+      result.appendChild(note);
+    }
     refreshProjects();
+    refreshJobs();
     refreshOutputs();
   }
   renderBtn.disabled = false;
@@ -539,6 +577,7 @@ for (const t of templates) TEMPLATES.set(t.file, t);
 select.innerHTML = templates.map((t) => `<option value="${t.file}">${t.title}</option>`).join('');
 buildGallery(templates);
 
+await refreshAssets();
 applyTemplateConfig();
 await loadContentFields(select.value);
 await Promise.all([refreshProjects(), refreshJobs(), refreshOutputs()]);

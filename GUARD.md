@@ -62,7 +62,7 @@ Note what happened: thirteen decisions were made *for* the user and shown for co
 
 ## Then, mechanically
 
-1. **Write the job spec** to `jobs/<name>.json`, validated against [`jobs/schema.json`](jobs/schema.json). This file *is* the reproducible record — a later session can re-render or edit it without re-deriving anything.
+1. **Write the job spec** to `jobs/<name>.json`, validated against [`jobs/schema.json`](jobs/schema.json). This file *is* the reproducible record — a later session can re-render or edit it without re-deriving anything. (The app enforces this from its own side: every successful `POST /api/render` writes the spec back to `jobs/<slug>.json`, so a UI render is exactly as reproducible as a CLI one.)
 2. **Pick or author a template** in `templates/`. Three references ship:
    - `poster-letter.html` — full-bleed art, big display type, image slot
    - `certificate-letter.html` — landscape, bordered, single merge field for the recipient name

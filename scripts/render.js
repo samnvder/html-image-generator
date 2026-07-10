@@ -18,6 +18,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer';
 import sharp from 'sharp';
+import { PDFDocument } from 'pdf-lib';
 import {
   PAPER_SIZES, PROJECT_ROOT, isInside, outputKey, resolveOutputPath, writeLatest,
 } from './paths.js';
@@ -197,13 +198,28 @@ function serveDocument(html) {
   });
 }
 
-async function renderPdf(page, url, paged) {
+// Chromium writes /Title from <title> and tags the PDF (StructTreeRoot), but exposes
+// no way to set Author/Subject/Creator. pdf-lib stamps them after the fact.
+//
+// useObjectStreams MUST stay false: pdf-lib defaults to true, and an /ObjStm would
+// compress the font descriptors that pdfinfo.js inspects by regex — the very property
+// that makes Chromium's PDFs checkable.
+async function stampMetadata(pdfBuffer, spec) {
+  const doc = await PDFDocument.load(pdfBuffer, { updateMetadata: false });
+  doc.setAuthor(spec.project);
+  doc.setSubject(spec.docType);
+  doc.setCreator('HTML Image Generator');
+  return Buffer.from(await doc.save({ useObjectStreams: false }));
+}
+
+async function renderPdf(page, url, paged, spec) {
   await page.goto(url, { waitUntil: 'networkidle0' });
   if (paged) {
     await page.waitForFunction('window.__pagedDone === true', { timeout: 30_000 });
   }
   await page.evaluateHandle('document.fonts.ready');
-  return page.pdf({ preferCSSPageSize: true, printBackground: true });
+  const pdf = await page.pdf({ preferCSSPageSize: true, printBackground: true });
+  return stampMetadata(pdf, spec);
 }
 
 async function renderPng(page, url, spec) {
@@ -291,7 +307,7 @@ export async function renderJob(rawSpec, opts = {}) {
         noteUnfilled(run, unfilled);
         const pdf = await withDocument(html, async (url) => {
           const page = await browser.newPage();
-          try { return await renderPdf(page, url, paged); } finally { await page.close(); }
+          try { return await renderPdf(page, url, paged, run); } finally { await page.close(); }
         });
         const out = await resolveOutputPath(run, 'pdf', when, suffix);
         await fs.writeFile(out, pdf);

@@ -116,15 +116,37 @@ app.get('/api/jobs/:name', async (req, reply) => {
   }
 });
 
+// The name is free text and validates fine as `menu: spring` — but a colon is illegal
+// on NTFS. Slugify it, exactly as the output path does.
+async function saveSpec(spec) {
+  const file = `${slugify(spec.name, 'name')}.json`;
+  const body = { $schema: './schema.json', ...spec };
+  await fs.writeFile(path.join(PROJECT_ROOT, 'jobs', file), `${JSON.stringify(body, null, 2)}\n`);
+  return `jobs/${file}`;
+}
+
 app.post('/api/jobs', async (req, reply) => {
   const spec = req.body;
   const errors = validateSpec(spec);
   if (errors.length) return reply.code(400).send({ error: 'Invalid job spec', errors });
-  // The name is free text and validates fine as `menu: spring` — but a colon is
-  // illegal on NTFS. Slugify it, exactly as the output path does.
-  const file = `${slugify(spec.name, 'name')}.json`;
-  await fs.writeFile(path.join(PROJECT_ROOT, 'jobs', file), `${JSON.stringify(spec, null, 2)}\n`);
-  return { saved: `jobs/${file}`, file };
+  const saved = await saveSpec(spec);
+  return { saved, file: path.basename(saved) };
+});
+
+// Image slots were bare text inputs. Offer what's actually in assets/.
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+app.get('/api/assets', async () => {
+  const root = path.join(PROJECT_ROOT, 'assets');
+  const found = [];
+  async function walk(dir) {
+    for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(abs);
+      else if (IMAGE_RE.test(e.name)) found.push(`/assets/${path.relative(root, abs).replaceAll('\\', '/')}`);
+    }
+  }
+  try { await walk(root); } catch { /* no assets/ */ }
+  return found.sort();
 });
 
 // Existing projects and doc types, so the UI's combo boxes know what already exists.
@@ -193,9 +215,14 @@ app.post('/api/render', async (req, reply) => {
   const { spec, autoOpen = true } = req.body;
   try {
     const { outputs, warnings } = await renderWithRecovery(spec, autoOpen);
+    // The Guard's promise: a job spec is the saved record of one generation. The CLI
+    // enforces it structurally (it renders *from* a file); the UI could render without
+    // ever persisting one. Now it can't.
+    const savedSpec = await saveSpec(spec);
     return {
       outputs: outputs.map((r) => ({ format: r.format, path: toOutputsUrlPath(r.path) })),
       warnings,
+      savedSpec,
     };
   } catch (err) {
     // SpecError carries field-level errors; anything else is a genuine render failure.

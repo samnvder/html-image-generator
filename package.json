@@ -11,7 +11,7 @@
   },
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node server/index.js",
@@ -25,14 +25,15 @@
     "fetch-fonts": "node scripts/fetch-fonts.js"
   },
   "dependencies": {
-    "@fastify/static": "^8.0.0",
+    "@fastify/static": "^9.3.0",
     "@fastify/websocket": "^11.0.0",
-    "chokidar": "^4.0.0",
+    "chokidar": "^5.0.0",
     "fastify": "^5.0.0",
-    "open": "^10.1.0",
+    "open": "^11.0.0",
     "pagedjs": "^0.4.3",
-    "puppeteer": "^24.0.0",
-    "sharp": "^0.34.0"
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^25.3.0",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "pdfjs-dist": "^6.1.200"
