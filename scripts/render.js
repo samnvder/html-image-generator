@@ -115,11 +115,17 @@ export async function composeDocument(spec, opts = {}) {
     : '';
 
   // Screen-only. Never present in a rendered PDF or PNG.
+  // The backdrop stays transparent so the app's stage colour shows through —
+  // a hardcoded grey here clashes with the UI's dark theme.
   const previewChrome = opts.preview
     ? `
 <style id="__preview-chrome">
-  body { background: #8b8e94; }
-  .pagedjs_page { background: #fff; box-shadow: 0 3px 18px rgba(0,0,0,0.28); margin: 0 auto 24px; }
+  html, body { background: transparent; }
+  /* The host sizes the iframe to the content, so the iframe's own scrollbar is
+     never needed — and with a transparent body it renders as a stray sliver. */
+  html { scrollbar-width: none; }
+  html::-webkit-scrollbar { display: none; }
+  .pagedjs_page { background: #fff; box-shadow: 0 3px 18px rgba(0,0,0,0.35); margin: 0 auto 24px; }
 </style>`
     : '';
 
@@ -190,6 +196,25 @@ async function renderPng(page, url, spec) {
   await page.evaluateHandle('document.fonts.ready');
   const shot = await page.screenshot({ type: 'png' });
   return sharp(shot).withMetadata({ density: spec.dpi }).png().toBuffer();
+}
+
+// A PNG of the first page, straight to a buffer — nothing touches outputs/.
+// Used for the UI's template thumbnails, so they are the real renderer's output
+// rather than a hand-drawn approximation that can drift from reality.
+export async function renderPngBuffer(rawSpec, browser, { dpi = 48 } = {}) {
+  const spec = { ...applyDefaults(rawSpec), dpi };
+  const { html } = await composeDocument(spec);
+  const doc = await serveDocument(html);
+  try {
+    const page = await browser.newPage();
+    try {
+      return await renderPng(page, doc.url, spec);
+    } finally {
+      await page.close();
+    }
+  } finally {
+    await doc.close();
+  }
 }
 
 export async function renderJob(rawSpec, opts = {}) {

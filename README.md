@@ -86,11 +86,17 @@ The document is always served over a throwaway local HTTP server (Paged.js refus
 
 ## The app
 
-`npm start` boots a Fastify server (~1s), picks a free port, and opens your browser. The left panel is the Question Guard as a form — everything defaulted, **paper size demanded**. The right panel is a true-size preview: the document runs through the Paged.js polyfill, so a Letter page is exactly 816×1056 CSS px and a Legal page 816×1344.
+`npm start` boots a Fastify server (~1s), picks a free port, and opens your browser.
 
-Edit a template in any editor and the preview reloads itself. Hit Render and the file opens in your default viewer, with a "Reveal in Explorer" button beside it.
+The left rail is the Question Guard as a guided flow: **① Template** — a gallery whose thumbnails are rendered by the real engine, so a card can never misrepresent what it produces. **② Setup** — everything inferred from the template's own declared config, except **paper size, which is demanded**. **③ Content** — fields discovered from the template's `{{placeholders}}`.
 
-The server keeps one warm Chromium and calls the same `renderJob()` the CLI does. A UI render and a CLI render of the same spec produce the same PDF and a pixel-equivalent PNG.
+Choosing a template applies its orientation, margin, and output formats, and *recommends* a paper size. It never picks one for you. Choose differently and you get a warning, not a silently wrong render. Type an invalid margin and the Render button disables itself and says `Fix margin`.
+
+The right pane is a true-size preview — a Letter page is exactly 816×1056 CSS px, a Legal page 816×1344 — with a paper badge, page count, and fit-page/fit-width/100% zoom. Edit a template in any editor and it reloads itself. Dark mode follows your system.
+
+Every render goes through the same `renderJob()` the CLI calls, against one warm Chromium. A UI render and a CLI render of the same spec produce the same PDF and a pixel-equivalent PNG.
+
+Validation lives in exactly one place ([`scripts/validate.js`](scripts/validate.js)), enforced inside `renderJob()` — so the CLI, the HTTP API, and the UI cannot disagree about what a valid job is.
 
 ## Project layout
 

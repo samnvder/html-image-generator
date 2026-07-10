@@ -1,13 +1,19 @@
 // Thin client. Every render goes through POST /api/render, which calls the same
-// renderJob() the CLI calls. The UI adds no rendering logic of its own.
+// renderJob() the CLI calls. The UI adds no rendering logic of its own, and no
+// second copy of the validation rules — it asks POST /api/validate.
 
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
+
 const form = $('#spec');
 const frame = $('#frame');
+const stage = $('#stage');
 const renderBtn = $('#render');
 const guard = $('#guard');
+const select = $('#template-select');
 
 const PAPER = { letter: [8.5, 11], legal: [8.5, 14] };
+const PAPER_LABEL = { letter: 'Letter · 8.5 × 11 in', legal: 'Legal · 8.5 × 14 in' };
 
 // Wrap the iframe so the scaled page reserves real scroll space.
 const canvas = document.createElement('div');
@@ -52,17 +58,55 @@ function readSpec() {
   return spec;
 }
 
+// ---- template gallery ----------------------------------------------------
+// The <select> is the form control and the source of truth; the gallery is a
+// visual skin over it. Changing either dispatches `input` on the select, so
+// there is exactly one code path.
+
+const TEMPLATES = new Map();
+const templateConfig = () => TEMPLATES.get(select.value)?.config ?? {};
+
+function buildGallery(templates) {
+  const gallery = $('#gallery');
+  gallery.innerHTML = '';
+  for (const t of templates) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'card';
+    card.dataset.template = t.file;
+    card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', String(t.file === select.value));
+    card.title = t.description;
+    card.innerHTML = `
+      <img class="shot" alt="" src="/thumbs/${t.file.replace(/\.html$/, '')}.png" loading="lazy">
+      <span class="name">${t.title}</span>
+      <span class="spec">${t.config.paperSize ?? '?'} · ${t.config.orientation ?? ''}</span>`;
+    card.addEventListener('click', () => {
+      if (select.value === t.file) return;
+      select.value = t.file;
+      select.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    gallery.appendChild(card);
+  }
+}
+
+function syncGallery() {
+  for (const card of $$('.card')) card.setAttribute('aria-checked', String(card.dataset.template === select.value));
+}
+
+// Thumbnails regenerate when a template changes; bust the cache.
+function refreshThumbs() {
+  for (const img of $$('.card .shot')) img.src = `${img.src.split('?')[0]}?t=${Date.now()}`;
+}
+
 // ---- template config -----------------------------------------------------
 // Templates declare what they were built for. Selecting one applies its
 // orientation / margin / outputs, and *recommends* a paper size — it never
 // picks the paper size for you. That variable is the user's to confirm.
 
-const TEMPLATES = new Map();
-const templateConfig = () => TEMPLATES.get(form.template.value)?.config ?? {};
-
 function applyTemplateConfig() {
   const c = templateConfig();
-  $('#template-desc').textContent = TEMPLATES.get(form.template.value)?.description ?? '';
+  $('#template-desc').textContent = TEMPLATES.get(select.value)?.description ?? '';
   if (c.orientation) form.orientation.value = c.orientation;
   if (c.margin !== undefined) form.margin.value = c.margin;
   if (Array.isArray(c.outputs)) {
@@ -72,6 +116,7 @@ function applyTemplateConfig() {
   // A flowing multi-page template has no meaningful screenshot.
   form.png.disabled = Boolean(c.pdfOnly);
   if (c.pdfOnly) form.png.checked = false;
+  syncGallery();
 }
 
 // Name the job after its own title field instead of shipping "untitled".
@@ -88,13 +133,13 @@ function updateRecommendation() {
   const chosen = new FormData(form).get('paperSize');
 
   for (const label of form.querySelectorAll('.radio')) {
-    const value = label.querySelector('input').value;
-    label.classList.toggle('recommended', c.paperSize === value);
+    label.classList.toggle('recommended', c.paperSize === label.querySelector('input').value);
   }
 
   const warn = $('#mismatch');
   const problems = [];
-  if (chosen && c.paperSize && chosen !== c.paperSize) problems.push(`${TEMPLATES.get(form.template.value)?.title ?? 'This template'} is designed for ${c.paperSize}, not ${chosen}`);
+  const title = TEMPLATES.get(select.value)?.title ?? 'This template';
+  if (chosen && c.paperSize && chosen !== c.paperSize) problems.push(`${title} is designed for ${c.paperSize}, not ${chosen}`);
   if (c.orientation && form.orientation.value !== c.orientation) problems.push(`it expects ${c.orientation} orientation`);
   if (c.margin !== undefined && form.margin.value !== c.margin) problems.push(`its intended margin is ${c.margin === '0' ? 'none' : c.margin}`);
 
@@ -103,8 +148,6 @@ function updateRecommendation() {
 }
 
 // ---- validation ----------------------------------------------------------
-// Uses POST /api/validate, the same validator renderJob() enforces. The UI has
-// no second copy of the rules to drift out of sync.
 
 let currentErrors = [];
 
@@ -149,21 +192,48 @@ function updateGuard() {
   return chosen && blocking.length === 0;
 }
 
-// ---- preview -------------------------------------------------------------
+// ---- preview & zoom ------------------------------------------------------
 
-function applyZoom() {
+let zoomMode = 'fit-page';   // 'fit-page' | 'fit-width' | a number (percent)
+
+function pageInches() {
   const spec = readSpec();
   const [wIn, hIn] = PAPER[spec.paperSize] ?? PAPER.letter;
-  const [pw, ph] = spec.orientation === 'landscape' ? [hIn, wIn] : [wIn, hIn];
-  const z = Number($('#zoom').value) / 100;
-  $('#zoom-label').textContent = `${$('#zoom').value}%`;
+  return spec.orientation === 'landscape' ? [hIn, wIn] : [wIn, hIn];
+}
 
-  // Paged.js lays pages out at 96 CSS px/inch, the same units Chromium prints at.
+function applyZoom() {
+  const [pw, ph] = pageInches();
   const frameW = Math.round(pw * 96) + 80;
+  const frameH = parseFloat(frame.style.height) || 1200;
+  // Fit-page fits ONE page, not the whole document — otherwise a ten-page job
+  // zooms out to a postage stamp. Extra pages are reached by scrolling.
+  const pageH = Math.round(ph * 96) + 40;
+
+  const avail = { w: stage.clientWidth - 48, h: stage.clientHeight - 48 };
+  let z;
+  if (zoomMode === 'fit-width') z = avail.w / frameW;
+  else if (zoomMode === 'fit-page') z = Math.min(avail.w / frameW, avail.h / pageH);
+  else z = Number(zoomMode) / 100;
+  z = Math.max(0.05, Math.min(z, 4));
+
   frame.style.width = `${frameW}px`;
   frame.style.transform = `scale(${z})`;
   canvas.style.width = `${frameW * z}px`;
-  canvas.style.height = `${parseFloat(frame.style.height || 0) * z}px`;
+  canvas.style.height = `${frameH * z}px`;
+
+  $('#zoom-label').textContent = `${Math.round(z * 100)}%`;
+  for (const chip of $$('.chip')) chip.classList.toggle('active', chip.dataset.zoom === String(zoomMode));
+}
+
+function updatePreviewMeta() {
+  const spec = readSpec();
+  $('#paper-badge').textContent = spec.paperSize
+    ? `${PAPER_LABEL[spec.paperSize]}${spec.orientation === 'landscape' ? ' · landscape' : ''}`
+    : 'No paper size chosen';
+  let pages = 0;
+  try { pages = frame.contentDocument?.querySelectorAll('.pagedjs_page').length ?? 0; } catch { /* not ready */ }
+  $('#page-count').textContent = pages ? `${pages} page${pages === 1 ? '' : 's'}` : '';
 }
 
 // The polyfill runs once on load, so every refresh is a full iframe reload.
@@ -173,7 +243,9 @@ function fitFrameHeight() {
     if (!doc) return;
     const h = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight ?? 0, 400);
     frame.style.height = `${h + 40}px`;
+    if (pagedFinished()) previewStalled = false;
     applyZoom();
+    updatePreviewMeta();
   } catch { /* not ready */ }
 }
 frame.addEventListener('load', () => {
@@ -182,38 +254,53 @@ frame.addEventListener('load', () => {
   let n = 0;
   const t = setInterval(() => { fitFrameHeight(); if (++n > 12) clearInterval(t); }, 250);
 });
+window.addEventListener('resize', applyZoom);
+
+for (const chip of $$('.chip')) {
+  chip.addEventListener('click', () => { zoomMode = chip.dataset.zoom; applyZoom(); });
+}
 
 // Paged.js chunks pages via requestAnimationFrame, which Chrome throttles to a
-// standstill in a background tab. Rendering a preview while hidden leaves the
-// iframe blank forever — the polyfill never resumes on its own. So: defer while
-// hidden, and re-run on the way back if the last pass never finished.
+// standstill in a background tab: the polyfill stalls with an empty page container
+// and never resumes on its own.
+//
+// We do NOT gate on document.hidden — some environments report a visible tab as
+// hidden, and gating there means the preview never renders at all. Instead we
+// always start the render and watch for a stall; a stalled preview is re-run the
+// moment the tab is visible again.
 let previewTimer;
-let previewPending = false;
-
-async function refreshPreview() {
-  const spec = readSpec();
-  if (!spec.paperSize || !spec.template) return;
-  if (document.hidden) { previewPending = true; return; }
-  previewPending = false;
-
-  const res = await fetch('/api/preview', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(spec),
-  });
-  if (!res.ok) return;
-  frame.src = `/preview?t=${Date.now()}`;
-}
-const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(refreshPreview, 220); };
+let watchdog;
+let previewStalled = false;
 
 const pagedFinished = () => {
   try { return frame.contentWindow?.__pagedDone === true; } catch { return false; }
 };
 
+function armStallWatchdog() {
+  clearTimeout(watchdog);
+  watchdog = setTimeout(() => { previewStalled = !pagedFinished(); }, 4000);
+}
+
+async function refreshPreview() {
+  const spec = readSpec();
+  if (!spec.paperSize || !spec.template) return;
+
+  const res = await fetch('/api/preview', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(spec),
+  });
+  if (!res.ok) return;
+  previewStalled = false;
+  stage.classList.add('has-preview');
+  frame.src = `/preview?t=${Date.now()}`;
+  armStallWatchdog();
+}
+const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(refreshPreview, 220); };
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return;
-  // Either a preview was queued while hidden, or one started and stalled mid-chunk.
-  if (previewPending || !pagedFinished()) refreshPreview();
+  // The polyfill stalled (throttled rAF) or never finished. Run it again now that
+  // the tab can paint.
+  if (previewStalled || !pagedFinished()) refreshPreview();
 });
 
 async function refreshDest() {
@@ -232,6 +319,11 @@ async function refreshDest() {
 
 const LONG = /citation|subhead|recital|clause|notice|governing|entire|attest|parties|footer|body|paragraph/i;
 
+const humanize = (key) => key
+  .replace(/([a-z])([A-Z0-9])/g, '$1 $2')
+  .replace(/[-_]/g, ' ')
+  .replace(/^./, (c) => c.toUpperCase());
+
 async function loadContentFields(template, values = {}, slots = {}) {
   const box = $('#content-fields');
   box.innerHTML = '';
@@ -242,7 +334,8 @@ async function loadContentFields(template, values = {}, slots = {}) {
     const isImage = key.startsWith('image:');
     const current = isImage ? (slots[key.slice(6)] ?? '') : (values[key] ?? '');
     const label = document.createElement('label');
-    label.textContent = isImage ? `${key.slice(6)} (image slot)` : key;
+    label.textContent = isImage ? `${humanize(key.slice(6))} — image slot` : humanize(key);
+
     const long = !isImage && (LONG.test(key) || current.length > 60);
     const input = document.createElement(long ? 'textarea' : 'input');
     if (long) input.rows = 3;
@@ -252,17 +345,44 @@ async function loadContentFields(template, values = {}, slots = {}) {
     label.appendChild(input);
     box.appendChild(label);
   }
+  if (!keys.length) box.innerHTML = '<p class="hint">This template has no content fields.</p>';
 }
 
 // ---- render --------------------------------------------------------------
 
+const revealButton = (p) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ghost';
+  b.textContent = 'Reveal';
+  b.onclick = () => fetch('/api/reveal', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: p }),
+  });
+  return b;
+};
+
+function fileRow(r, when) {
+  const row = document.createElement('div');
+  row.className = 'file';
+  row.innerHTML = `<span class="fmt">${r.format.toUpperCase()}</span>
+    <a href="/${r.path}" target="_blank" rel="noopener">${r.path.split('/').pop()}</a>`;
+  if (when) {
+    const t = document.createElement('span');
+    t.className = 'when';
+    t.textContent = when;
+    row.appendChild(t);
+  }
+  row.appendChild(revealButton(r.path));
+  return row;
+}
+
 renderBtn.addEventListener('click', async () => {
   if (!updateGuard()) return;
   const result = $('#result');
+  showTab('result');
   renderBtn.disabled = true;
   renderBtn.textContent = 'Rendering…';
-  result.hidden = false;
-  result.innerHTML = '<span class="hint">Rendering…</span>';
+  result.innerHTML = '<p class="hint">Rendering…</p>';
 
   const res = await fetch('/api/render', {
     method: 'POST',
@@ -272,28 +392,43 @@ renderBtn.addEventListener('click', async () => {
   const body = await res.json();
 
   if (!res.ok) {
+    paintErrors(body.errors ?? []);
     result.innerHTML = `<div class="err">${body.error}</div>`;
   } else {
     result.innerHTML = '';
-    for (const r of body) {
-      const row = document.createElement('div');
-      row.className = 'file';
-      row.innerHTML = `<span class="fmt">${r.format.toUpperCase()}</span>
-        <a href="/${r.path}" target="_blank">${r.path}</a>`;
-      const reveal = document.createElement('button');
-      reveal.className = 'ghost';
-      reveal.textContent = 'Reveal in Explorer';
-      reveal.onclick = () => fetch('/api/reveal', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: r.path }),
-      });
-      row.appendChild(reveal);
-      result.appendChild(row);
-    }
+    for (const r of body) result.appendChild(fileRow(r));
     refreshProjects();
+    refreshOutputs();
   }
   renderBtn.disabled = false;
-  renderBtn.textContent = 'Render';
+  updateGuard();
 });
+
+// ---- outputs panel -------------------------------------------------------
+
+const ago = (ms) => {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+};
+
+async function refreshOutputs() {
+  const rows = await (await fetch('/api/outputs')).json();
+  const box = $('#outputs');
+  box.innerHTML = '';
+  if (!rows.length) { box.innerHTML = '<p class="hint">No renders yet.</p>'; return; }
+  for (const r of rows.slice(0, 25)) {
+    box.appendChild(fileRow({ format: r.path.endsWith('.pdf') ? 'pdf' : 'png', path: r.path }, ago(r.mtime)));
+  }
+}
+
+function showTab(name) {
+  for (const t of $$('.tab')) t.classList.toggle('active', t.dataset.tab === name);
+  for (const p of $$('.panel')) p.classList.toggle('active', p.id === name);
+}
+for (const t of $$('.tab')) t.addEventListener('click', () => { showTab(t.dataset.tab); if (t.dataset.tab === 'outputs') refreshOutputs(); });
 
 // ---- saved jobs ----------------------------------------------------------
 
@@ -322,16 +457,19 @@ $('#load-job').addEventListener('click', async () => {
   form.name.value = spec.name ?? '';
   form.project.value = spec.project ?? '';
   form.docType.value = spec.docType ?? '';
-  form.template.value = spec.template ?? '';
+  select.value = spec.template ?? '';
   form.orientation.value = spec.orientation ?? 'portrait';
   form.margin.value = spec.margin ?? '0.5in';
   form.bleed.value = spec.bleed ?? '0';
   form.cropMarks.checked = Boolean(spec.cropMarks);
   form.dpi.value = spec.dpi ?? 300;
+  form.png.disabled = Boolean(TEMPLATES.get(spec.template)?.config?.pdfOnly);
   form.pdf.checked = (spec.outputs ?? ['pdf']).includes('pdf');
   form.png.checked = (spec.outputs ?? []).includes('png');
   for (const r of form.querySelectorAll('[name=paperSize]')) r.checked = r.value === spec.paperSize;
 
+  syncGallery();
+  $('#template-desc').textContent = TEMPLATES.get(spec.template)?.description ?? '';
   await loadContentFields(spec.template, spec.content ?? {}, spec.imageSlots ?? {});
   onChange();
 });
@@ -340,6 +478,7 @@ $('#load-job').addEventListener('click', async () => {
 
 function onChange() {
   updateRecommendation();
+  updatePreviewMeta();
   validateNow();
   refreshDest();
   schedulePreview();
@@ -352,13 +491,12 @@ form.addEventListener('input', (e) => {
   if (e.target.id === 'job-picker') return;
   if (e.target.name === 'template') {
     applyTemplateConfig();
-    loadContentFields(form.template.value).then(() => { suggestJobName(); onChange(); });
+    loadContentFields(select.value).then(() => { suggestJobName(); onChange(); });
   } else {
     if (e.target.dataset?.field) suggestJobName();
     onChange();
   }
 });
-$('#zoom').addEventListener('input', applyZoom);
 
 async function refreshProjects() {
   const projects = await (await fetch('/api/projects')).json();
@@ -383,6 +521,7 @@ function connect() {
     const msg = JSON.parse(ev.data);
     // Full iframe reload — the Paged.js polyfill only runs on load.
     if (msg.type === 'reload') { label.textContent = `reloaded · ${msg.file}`; refreshPreview(); }
+    if (msg.type === 'thumbs') refreshThumbs();
   };
 }
 
@@ -390,14 +529,12 @@ function connect() {
 
 const templates = await (await fetch('/api/templates')).json();
 for (const t of templates) TEMPLATES.set(t.file, t);
-form.template.innerHTML = templates
-  .map((t) => `<option value="${t.file}">${t.title} — ${t.config.paperSize ?? '?'} ${t.config.orientation ?? ''}</option>`)
-  .join('');
-$('#template-desc').textContent = TEMPLATES.get(form.template.value)?.description ?? '';
+select.innerHTML = templates.map((t) => `<option value="${t.file}">${t.title}</option>`).join('');
+buildGallery(templates);
 
 applyTemplateConfig();
-await loadContentFields(form.template.value);
-await Promise.all([refreshProjects(), refreshJobs()]);
+await loadContentFields(select.value);
+await Promise.all([refreshProjects(), refreshJobs(), refreshOutputs()]);
 connect();
 onChange();
 applyZoom();

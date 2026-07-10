@@ -8,110 +8,149 @@
 </head>
 <body>
 <header>
-  <h1>HTML Image Generator</h1>
-  <div class="status"><span id="ws-dot" class="dot"></span><span id="ws-label">connecting…</span></div>
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2.5" width="16" height="19" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+    <h1>HTML Image Generator</h1>
+    <span class="tagline">deterministic print output</span>
+  </div>
+  <div class="status" title="Live reload watches templates/ and jobs/">
+    <span id="ws-dot" class="dot"></span><span id="ws-label">connecting…</span>
+  </div>
 </header>
 
 <main>
-  <!-- Left: the Question Guard, as a form. -->
+  <!-- The Question Guard, as a guided three-step flow. -->
   <form id="spec" autocomplete="off">
-    <section>
-      <h2>Destination</h2>
-      <label>Project
-        <input name="project" list="projects" value="South End" required>
-        <datalist id="projects"></datalist>
-      </label>
-      <label>Document type
-        <input name="docType" list="doctypes" value="poster" required>
-        <datalist id="doctypes"></datalist>
-      </label>
-    </section>
 
-    <section>
-      <h2>Template</h2>
-      <label>
-        <select name="template" required></select>
-      </label>
+    <section class="step" data-step="1">
+      <h2><span class="num">1</span> Template</h2>
+      <div id="gallery" class="gallery" role="radiogroup" aria-label="Template"></div>
+      <!-- The real form control. The gallery drives it; it stays the source of truth. -->
+      <label class="sr-only" for="template-select">Template</label>
+      <select id="template-select" name="template" class="sr-only" required></select>
       <p class="hint" id="template-desc"></p>
     </section>
 
-    <!-- The one variable that is never defaulted. A template may recommend, never choose. -->
-    <section class="guard" id="guard">
-      <h2>Paper size <span class="req">required</span></h2>
-      <p class="hint">Never defaulted. A flyer printed on the wrong stock is a wasted print run.</p>
-      <div class="radios">
-        <label class="radio"><input type="radio" name="paperSize" value="letter"><span><strong>Letter</strong><em>8.5 × 11 in</em></span></label>
-        <label class="radio"><input type="radio" name="paperSize" value="legal"><span><strong>Legal</strong><em>8.5 × 14 in</em></span></label>
+    <section class="step" data-step="2">
+      <h2><span class="num">2</span> Setup</h2>
+
+      <div class="guard" id="guard">
+        <div class="guard-head">
+          <strong>Paper size</strong>
+          <span class="req">required</span>
+        </div>
+        <p class="hint">Never defaulted. A flyer printed on the wrong stock is a wasted print run.</p>
+        <div class="radios">
+          <label class="radio"><input type="radio" name="paperSize" value="letter"><span><strong>Letter</strong><em>8.5 × 11 in</em></span></label>
+          <label class="radio"><input type="radio" name="paperSize" value="legal"><span><strong>Legal</strong><em>8.5 × 14 in</em></span></label>
+        </div>
       </div>
-    </section>
 
-    <p class="warning" id="mismatch" hidden></p>
+      <p class="warning" id="mismatch" hidden></p>
 
-    <section>
-      <h2>Layout</h2>
-      <label>Orientation
-        <select name="orientation">
-          <option value="portrait" selected>Portrait</option>
-          <option value="landscape">Landscape</option>
-        </select>
-      </label>
-      <label>Margin
-        <input name="margin" value="0.5in">
-      </label>
-      <div class="row">
-        <label>Bleed
-          <input name="bleed" value="0">
+      <div class="grid-2">
+        <label>Project
+          <input name="project" list="projects" value="South End" required>
+          <datalist id="projects"></datalist>
         </label>
-        <label class="check"><input type="checkbox" name="cropMarks"> Crop marks</label>
+        <label>Document type
+          <input name="docType" list="doctypes" value="poster" required>
+          <datalist id="doctypes"></datalist>
+        </label>
       </div>
-      <p class="hint" id="paged-note" hidden>Bleed or crop marks → rendered through Paged.js.</p>
-    </section>
 
-    <section>
-      <h2>Output</h2>
-      <label>Job name
-        <input name="name" value="untitled" required>
-      </label>
-      <div class="row">
-        <label class="check"><input type="checkbox" name="pdf" checked> PDF</label>
-        <label class="check"><input type="checkbox" name="png"> PNG</label>
-        <label>DPI
+      <div class="grid-2">
+        <label>Orientation
+          <select name="orientation">
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
+        </label>
+        <label>Margin
+          <input name="margin" value="0.5in" placeholder="0.5in">
+        </label>
+      </div>
+
+      <details class="advanced">
+        <summary>Print &amp; press options</summary>
+        <div class="grid-2">
+          <label>Bleed
+            <input name="bleed" value="0" placeholder="0.125in">
+          </label>
+          <label class="check-row"><input type="checkbox" name="cropMarks"> Crop marks</label>
+        </div>
+        <p class="hint" id="paged-note" hidden>Bleed or crop marks route the render through Paged.js.</p>
+        <label>Resolution (DPI, affects PNG only)
           <input name="dpi" type="number" value="300" min="72" max="1200">
         </label>
+      </details>
+
+      <div class="grid-2">
+        <label>Job name
+          <input name="name" value="untitled" required>
+        </label>
+        <div class="formats">
+          <span class="label-text">Output</span>
+          <label class="check-row"><input type="checkbox" name="pdf" checked> PDF</label>
+          <label class="check-row"><input type="checkbox" name="png"> PNG</label>
+        </div>
       </div>
-      <label class="check"><input type="checkbox" name="autoOpen" checked> Open when done</label>
+
+      <label class="check-row"><input type="checkbox" name="autoOpen" checked> Open the file when it's done</label>
     </section>
 
-    <section>
-      <h2>Content</h2>
-      <p class="hint">Fields discovered from the template's <code>{{placeholders}}</code>.</p>
+    <section class="step" data-step="3">
+      <h2><span class="num">3</span> Content</h2>
+      <p class="hint">Fields come from the template's <code>{{placeholders}}</code>.</p>
       <div id="content-fields"></div>
     </section>
 
-    <section>
-      <h2>Load a saved job</h2>
+    <section class="step muted">
+      <h2>Saved jobs</h2>
+      <p class="hint">A job spec is the reproducible record of one render.</p>
       <div class="row">
         <select id="job-picker"><option value="">—</option></select>
         <button type="button" id="load-job" class="ghost">Load</button>
-        <button type="button" id="save-job" class="ghost">Save spec</button>
+        <button type="button" id="save-job" class="ghost">Save</button>
       </div>
     </section>
   </form>
 
-  <!-- Right: dimensionally accurate preview. -->
+  <!-- True-size preview. -->
   <div class="preview">
     <div class="toolbar">
       <button type="button" id="render" disabled>Choose a paper size</button>
-      <div class="zoom">
-        <label>Zoom <input type="range" id="zoom" min="20" max="120" value="55"></label>
-        <span id="zoom-label">55%</span>
+      <div class="meta">
+        <span class="badge" id="paper-badge">—</span>
+        <span class="pages" id="page-count"></span>
+      </div>
+      <div class="spacer"></div>
+      <div class="zoom" role="group" aria-label="Zoom">
+        <button type="button" class="chip" data-zoom="fit-page">Fit page</button>
+        <button type="button" class="chip" data-zoom="fit-width">Fit width</button>
+        <button type="button" class="chip" data-zoom="100">100%</button>
+        <span id="zoom-label">—</span>
       </div>
     </div>
     <p class="dest" id="dest">→ outputs/…</p>
+
     <div class="stage" id="stage">
-      <iframe id="frame" src="about:blank" title="preview"></iframe>
+      <div class="empty" id="empty">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2.5" width="16" height="19" rx="1.5"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+        <p><strong>Choose a paper size</strong></p>
+        <p>Letter or Legal — it is never picked for you. The preview appears at true physical size.</p>
+      </div>
+      <iframe id="frame" src="about:blank" title="Preview"></iframe>
     </div>
-    <div id="result" class="result" hidden></div>
+
+    <div class="drawer">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-tab="result" role="tab">This render</button>
+        <button type="button" class="tab" data-tab="outputs" role="tab">Recent outputs</button>
+      </div>
+      <div id="result" class="panel active"><p class="hint">Nothing rendered yet.</p></div>
+      <div id="outputs" class="panel"></div>
+    </div>
   </div>
 </main>
 

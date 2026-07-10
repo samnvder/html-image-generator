@@ -139,7 +139,15 @@ Shipped: `scripts/validate.js` (one validator, enforced inside `applyDefaults()`
 3. **Template metadata.** Each template declares what it's designed for in a `<meta name="template-config" content='{...}'>` block: recommended `paperSize`, `orientation`, `margin`, plus a human description. Selecting a template in the UI **auto-applies its recommendations**; a mismatch the user forces (certificate on Legal portrait) shows a visible warning, not silence. `templatetest.js` asserts every shipped template carries valid metadata.
 4. **Field-level UI validation.** Inline errors under each field as you type (reusing the same validator via a `/api/validate` endpoint); Render disabled while invalid, with the button naming the first problem ("Fix margin: 'abc' is not a length"). Job name: default to a slug of the template's title/headline content instead of `untitled`.
 
-### 6B — Redesign: modern, guided, visual
+### 6B — Redesign — **DONE 2026-07-10**
+
+Shipped: template gallery with thumbnails rendered by the real engine (`scripts/thumbs.js`, cached, serialized, atomic writes), three-step guided rail, preview toolbar (paper badge with physical dimensions, page count, fit-page/fit-width/100% presets), empty state, recent-outputs panel, humanized field labels, and a full design-system pass with `prefers-color-scheme` dark mode using the shipped Inter.
+
+**Two behavioural fixes found by looking at it, not by testing it:**
+- The background-tab guard now keys off **whether Paged.js actually stalled**, not `document.hidden`. Some environments report a visible tab as hidden, and gating there meant the preview never rendered at all. The preview always starts; a watchdog flags a stall; `visibilitychange` re-runs it.
+- Preview chrome no longer hardcodes a grey backdrop (it clashed with dark mode) and hides the iframe's scrollbar. Fit-page fits **one page**, not the whole document.
+
+### 6B — original plan (for reference)
 
 Direction: keep the no-framework constraint (the state is small); rebuild `server/ui/` around a **guided flow that mirrors the Question Guard** instead of one undifferentiated form column.
 

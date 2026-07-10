@@ -133,31 +133,146 @@ try {
   check('ws status names the changed file', (await page.$eval('#ws-label', (e) => e.textContent)).includes('legal-form.html'));
   check('reloaded preview still measures Legal', reloaded.box[0] === 816 && reloaded.box[1] === 1344, reloaded.box.join('x'));
 
-  console.log('— Background-tab guard (Paged.js needs rAF) —');
-  const deferred = await page.evaluate(async () => {
-    // Simulate a hidden tab: Chrome throttles rAF, so Paged.js would stall forever.
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+  console.log('— Stalled-preview recovery (Paged.js needs rAF) —');
+  // Chrome throttles requestAnimationFrame in a background tab, so Paged.js stalls
+  // with an empty page container and no error. The UI must re-run it on return.
+  // Note we do NOT gate on document.hidden: some environments report a visible tab
+  // as hidden, and gating there means the preview never renders at all.
+  const stalled = await page.evaluate(async () => {
     const f = document.getElementById('frame');
-    f.src = 'about:blank';
-    await new Promise((r) => setTimeout(r, 400));
-    document.forms.spec.margin.value = '1in';
-    document.forms.spec.dispatchEvent(new Event('input', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 1200));
-    return f.src.endsWith('about:blank');   // preview was deferred, not started
+    f.src = 'about:blank';                       // simulate a preview that never finished
+    await new Promise((r) => setTimeout(r, 500));
+    return { blank: f.src.endsWith('about:blank'), done: f.contentWindow?.__pagedDone === true };
   });
-  check('preview is deferred while the tab is hidden', deferred);
+  check('a stalled preview is detectable (polyfill never signalled done)', stalled.blank && !stalled.done);
 
   const recovered = await page.evaluate(async () => {
-    delete document.hidden; delete document.visibilityState;
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
-    document.dispatchEvent(new Event('visibilitychange'));
-    await new Promise((r) => setTimeout(r, 1200));
+    document.dispatchEvent(new Event('visibilitychange'));   // tab comes back to the front
+    await new Promise((r) => setTimeout(r, 1500));
     return !document.getElementById('frame').src.endsWith('about:blank');
   });
-  check('preview resumes when the tab becomes visible', recovered);
-  await previewState();
+  check('returning to the tab re-runs the stalled preview', recovered);
+  await waitPaged();
+  const restored = await previewState();
+  check('the recovered preview is complete and correct', restored.count >= 2 && restored.box[1] === 1344, JSON.stringify(restored.box));
+
+  console.log('— Template gallery —');
+  // Start from the poster, so clicking the legal-form card is a real change.
+  // (A card click on the already-selected template is deliberately a no-op.)
+  await loadJob('poster-example.json');
+  // Thumbnails render in the background after the server starts listening.
+  // Wait for them on the wire, then force the <img>s to re-fetch.
+  await page.waitForFunction(
+    async () => (await Promise.all(['poster-letter', 'certificate-letter', 'legal-form']
+      .map((n) => fetch(`/thumbs/${n}.png`).then((r) => r.ok, () => false)))).every(Boolean),
+    { timeout: 90_000, polling: 1000 },
+  );
+  await page.evaluate(async () => {
+    const imgs = [...document.querySelectorAll('.card img.shot')];
+    await Promise.all(imgs.map((img) => new Promise((r) => {
+      img.onload = r; img.onerror = r;
+      img.src = `${img.src.split('?')[0]}?t=${Date.now()}`;
+    })));
+  });
+
+  const gallery = await page.evaluate(async () => {
+    const cards = [...document.querySelectorAll('.card')];
+    return {
+      count: cards.length,
+      names: cards.map((c) => c.querySelector('.name').textContent),
+      thumbsLoaded: cards.filter((c) => c.querySelector('img.shot').naturalWidth > 0).length,
+      // The certificate thumbnail must be landscape — it is the real renderer's output.
+      certLandscape: (() => {
+        const img = cards.find((c) => c.dataset.template === 'certificate-letter.html')?.querySelector('img.shot');
+        return img ? img.naturalWidth > img.naturalHeight : false;
+      })(),
+      checkedCount: cards.filter((c) => c.getAttribute('aria-checked') === 'true').length,
+    };
+  });
+  check('gallery shows one card per template', gallery.count === 3, `${gallery.count}`);
+  check('cards are named from template config', gallery.names.includes('Certificate') && gallery.names.includes('Legal Form'), gallery.names.join(', '));
+  check('every thumbnail loaded', gallery.thumbsLoaded === 3, `${gallery.thumbsLoaded}/3`);
+  check('certificate thumbnail is landscape (real render, not a mock)', gallery.certLandscape);
+  check('exactly one card is selected', gallery.checkedCount === 1, `${gallery.checkedCount}`);
+
+  await clearPagedFlag();
+  const clicked = await page.evaluate(async () => {
+    document.querySelector('.card[data-template="legal-form.html"]').click();
+    await new Promise((r) => setTimeout(r, 600));
+    const f = document.forms.spec;
+    return {
+      selectValue: f.template.value,
+      orientation: f.orientation.value,
+      pngDisabled: f.png.disabled,
+      checked: document.querySelector('.card[data-template="legal-form.html"]').getAttribute('aria-checked'),
+    };
+  });
+  check('clicking a card selects that template', clicked.selectValue === 'legal-form.html', clicked.selectValue);
+  check('clicking a card applies its config', clicked.orientation === 'portrait' && clicked.pngDisabled === true);
+  check('clicked card is marked selected', clicked.checked === 'true');
+
+  console.log('— Preview toolbar —');
+  await waitPaged();            // page count is only meaningful once Paged.js finishes
+  await new Promise((r) => setTimeout(r, 600));
+  const toolbar = await page.evaluate(async () => {
+    const zoomBefore = document.getElementById('zoom-label').textContent;
+    document.querySelector('.chip[data-zoom="100"]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    return {
+      badge: document.getElementById('paper-badge').textContent,
+      pages: document.getElementById('page-count').textContent,
+      zoomBefore,
+      zoomAfter: document.getElementById('zoom-label').textContent,
+      activeChip: document.querySelector('.chip.active')?.dataset.zoom,
+    };
+  });
+  // The legal-form card was just selected, but paper size is still the user's Letter:
+  // a template may not change it. The badge must report the truth, not the template's wish.
+  check('paper badge reports the CHOSEN paper, not the template default',
+    /Letter · 8\.5 × 11 in/.test(toolbar.badge), toolbar.badge);
+  check('page count is shown', /^\d+ pages?$/.test(toolbar.pages), toolbar.pages);
+  check('100% zoom preset sets 100%', toolbar.zoomAfter === '100%', `${toolbar.zoomBefore} -> ${toolbar.zoomAfter}`);
+  check('active zoom chip is marked', toolbar.activeChip === '100', String(toolbar.activeChip));
+
+  const badgeAfterLegal = await page.evaluate(async () => {
+    const legal = document.forms.spec.querySelector('[name=paperSize][value=legal]');
+    legal.checked = true;
+    legal.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 700));
+    return document.getElementById('paper-badge').textContent;
+  });
+  check('badge follows the user choosing Legal', /Legal · 8\.5 × 14 in/.test(badgeAfterLegal), badgeAfterLegal);
+
+  console.log('— Recent outputs panel —');
+  const outputs = await page.evaluate(async () => {
+    document.querySelector('.tab[data-tab="outputs"]').click();
+    await new Promise((r) => setTimeout(r, 700));
+    const rows = [...document.querySelectorAll('#outputs .file')];
+    return {
+      visible: document.getElementById('outputs').classList.contains('active'),
+      rows: rows.length,
+      hasFormat: rows[0]?.querySelector('.fmt')?.textContent ?? '',
+      hasReveal: Boolean(rows[0]?.querySelector('button')),
+      hasWhen: Boolean(rows[0]?.querySelector('.when')),
+    };
+  });
+  check('outputs tab shows the panel', outputs.visible);
+  check('recent renders are listed', outputs.rows > 0, `${outputs.rows} rows`);
+  check('each row has a format badge', ['PDF', 'PNG'].includes(outputs.hasFormat), outputs.hasFormat);
+  check('each row has a reveal button and a timestamp', outputs.hasReveal && outputs.hasWhen);
+
+  console.log('— Dark mode ---');
+  const dark = await page.evaluate(async () => {
+    const light = getComputedStyle(document.body).backgroundColor;
+    return { light };
+  });
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+  const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  check('dark mode changes the theme', darkBg !== dark.light, `${dark.light} -> ${darkBg}`);
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+
+  // Back to a known state for the tests that follow.
+  await loadJob('poster-example.json');
 
   console.log('— Routing regression: the posterses bug —');
   const routed = await page.evaluate(async () => {

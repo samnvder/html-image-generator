@@ -32,8 +32,10 @@ A **deterministic image generator for print**. Instead of a diffusion model gues
 - `selftest.js` — **24/24.** Letter PDF exactly 612×792 pt, Legal 612×1008 pt, Letter PNG @300 exactly 2550×3300 px reading back `density: 300`. Path-traversal and Windows-reserved-name rejection. Both build-time probes.
 - `templatetest.js` — **30/30.** All three reference templates: correct page box, expected page count, no unfilled `{{placeholders}}` surviving into the PDF, every declared font embedded, no silent fallback to Arial.
 - `fonttest.js` — WOFF2 and TTF both embed and subset.
-- `apptest.js` — **43/43.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, template config drives the form, invalid fields block Render with inline messages, and a UI render matches a CLI render.
+- `apptest.js` — **62/62.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, the gallery renders one real thumbnail per template, template config drives the form, invalid fields block Render with inline messages, dark mode switches, and a UI render matches a CLI render.
 - `validatetest.js` — **77/77.** Pluralize idempotency (the `posterses` regression), CSS-length parsing, and 24 malformed-spec cases each rejected on the right field.
+
+**212 assertions total.**
 
 **Next action is Phase 4** (gated CMYK via Ghostscript) or Phase 5 (print and measure). Both are optional; the MVP is done.
 
@@ -103,7 +105,13 @@ The UI (`server/ui/`, plain HTML/JS, no framework) is the Question Guard as a fo
 
 **Deliberate deviation:** the plan said template selection should auto-apply `paperSize`. It must not — that would silently choose the one variable the Question Guard exists to protect. Templates recommend; the user still confirms.
 
-**Next: Phase 6B — the guided redesign** (template gallery with rendered thumbnails, three-step rail, preview toolbar, recent-outputs panel, design-system pass). Phase 4 (gated CMYK) and Phase 5 (print and measure) remain open.
+**Phase 6B is DONE (2026-07-10)** — the redesign. Template gallery whose thumbnails are rendered by the real engine (so a card can never misrepresent its template), a three-step guided rail (Template → Setup → Content), a preview toolbar (paper badge with physical dimensions, page count, fit-page/fit-width/100%), an empty state, a recent-outputs panel, humanized field labels, and a design-system pass with dark mode using the shipped Inter.
+
+Two fixes came from *looking* at the app rather than testing it:
+- **The background-tab guard was wrong.** It gated on `document.hidden`, but some environments report a visible tab as hidden — the preview then never rendered at all. It now always starts the render, arms a 4s watchdog to detect a stall, and re-runs on `visibilitychange`. Gate on the symptom, not the proxy.
+- **Preview chrome hardcoded a grey backdrop** that clashed with dark mode, and left a scrollbar sliver. Now transparent with the scrollbar hidden. Fit-page fits *one page*, not the whole document.
+
+**Next: Phase 4** (gated CMYK via Ghostscript) or **Phase 5** (print and measure). Both optional; the MVP is complete and polished.
 
 ---
 
@@ -144,5 +152,8 @@ Data merge (CSV → N certificates), n-up imposition / label sheets (Avery), A4 
 - **`pluralizeDocType()` must stay idempotent.** The UI feeds it its own output (folder names are already plural). Any change to it needs `pluralizeDocType(pluralizeDocType(x)) === pluralizeDocType(x)` to hold, which `validatetest.js` asserts. Known limitation: `canvas` is treated as already-plural.
 - **Validation lives in exactly one place** (`scripts/validate.js`, called from `applyDefaults()`). Do not add a second copy in the UI — it will drift. The UI calls `POST /api/validate`.
 - In the UI, the form's `input` handler keys off `e.target.name`. Dispatching `input` on the **form** rather than the changed control skips template-config application — a trap that produced two false test failures.
+- **Thumbnail generation must stay serialized.** Boot-time generation and the file-watcher's regeneration overlapped, and two writers on the same PNG intermittently left the gallery empty on Windows. `ensureThumbnails()` queues; writes go to a temp file and are renamed.
+- **A card click on the already-selected template is deliberately a no-op**, so a test that clicks it and then waits for a fresh preview will hang.
+- Don't gate UI behaviour on `document.hidden` — some environments (including this repo's own browser automation) report a visible tab as hidden. Detect the actual stall.
 - On Windows, Ghostscript's binary is **`gswin64c.exe`**, not `gs` — the unmaintained `press-ready` CLI trips on exactly this.
 - `press-ready` is **reference material only** (last release Aug 2020, hardcoded to Japan Color 2001 Coated). Mine its Ghostscript flags from `src/ghostScript.ts`; do not depend on it.

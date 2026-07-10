@@ -16,6 +16,7 @@ import { renderJob, composeDocument, applyDefaults } from '../scripts/render.js'
 import { PROJECT_ROOT, OUTPUTS_ROOT, outputDirFor } from '../scripts/paths.js';
 import { validateSpec } from '../scripts/validate.js';
 import { listTemplates } from '../scripts/templates.js';
+import { ensureThumbnails, THUMB_DIR } from '../scripts/thumbs.js';
 
 const UI_DIR = path.join(PROJECT_ROOT, 'server', 'ui');
 
@@ -43,6 +44,8 @@ await app.register(fastifyStatic, {
   prefix: '/node_modules/pagedjs/dist/',
   decorateReply: false,
 });
+await fs.mkdir(THUMB_DIR, { recursive: true });
+await app.register(fastifyStatic, { root: THUMB_DIR, prefix: '/thumbs/', decorateReply: false });
 
 // ---- api -----------------------------------------------------------------
 
@@ -168,7 +171,16 @@ const broadcast = (msg) => { for (const s of sockets) { try { s.send(msg); } cat
 
 chokidar
   .watch([path.join(PROJECT_ROOT, 'templates'), path.join(PROJECT_ROOT, 'jobs')], { ignoreInitial: true })
-  .on('all', (_event, file) => broadcast(JSON.stringify({ type: 'reload', file: path.basename(file) })));
+  .on('all', async (_event, file) => {
+    broadcast(JSON.stringify({ type: 'reload', file: path.basename(file) }));
+    // A changed template (or the example job that feeds it) means a stale thumbnail.
+    // ensureThumbnails() is serialized, so this can't race the boot-time pass.
+    const written = await ensureThumbnails(browser).catch((err) => {
+      console.warn(`[thumbs] ${err.message}`);
+      return [];
+    });
+    if (written.length) broadcast(JSON.stringify({ type: 'thumbs' }));
+  });
 
 // ---- launch --------------------------------------------------------------
 await app.listen({ port: 0, host: '127.0.0.1' });
@@ -176,6 +188,11 @@ const { port } = app.server.address();
 const url = `http://127.0.0.1:${port}`;
 console.log(`\n  HTML Image Generator  →  ${url}\n  Ctrl+C to stop.\n`);
 if (!process.argv.includes('--no-open')) await open(url);
+
+// Thumbnails render in the background — the UI must not wait on Chromium to boot.
+ensureThumbnails(browser)
+  .then((written) => { if (written.length) broadcast(JSON.stringify({ type: 'thumbs' })); })
+  .catch((err) => console.warn(`[thumbs] ${err.message}`));
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
