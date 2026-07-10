@@ -4,3 +4,9 @@ outputs/*
 server/.thumbs/
 *.log
 .DS_Store
+
+# The ICC slot. No press profile in this repo may be redistributed without checking
+# its licence first, so the folder ships empty but for the README that explains where
+# to get one. See assets/icc/README.md.
+assets/icc/*
+!assets/icc/README.md

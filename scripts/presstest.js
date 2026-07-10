@@ -144,7 +144,10 @@ if (!icc) {
   check('pdfx: the XMP carries the pdfxid identification PDF/X-4 conformance requires',
     /pdfxid:GTS_PDFXVersion\s*=\s*'PDF\/X-4'/.test(deep.xmp) || /pdfxid:GTS_PDFXVersion\s*=\s*"PDF\/X-4"/.test(deep.xmp),
     deep.xmp.slice(0, 200));
-  check('pdfx: every page carries a TrimBox', deep.hasTrimBox);
+  check('pdfx: every page carries a TrimBox, and the file is unencrypted',
+    deep.trimBoxOnEveryPage && !deep.encrypted);
+  check('pdfx: /Trapped is False — PDF/X forbids leaving it Unknown',
+    deep.trapped === '/False', deep.trapped || '(absent)');
   // The trap that -dPDFX (X-3, PDF 1.3) falls into: no transparency in 1.3, so the
   // gradient scrim flattens the whole page to a bitmap and all four fonts disappear.
   check('pdfx: all four fonts are STILL embedded and subsetted (X-3 would have rasterized them)',

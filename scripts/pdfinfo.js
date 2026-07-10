@@ -80,7 +80,7 @@ export async function inspectPdfDeep(buf) {
   const meta = doc.catalog.lookup(PDFName.of('Metadata'));
   if (meta?.contents) xmp = Buffer.from(meta.contents).toString('utf8');
 
-  const page = doc.getPage(0).node;
+  const info = doc.context.lookup(doc.context.trailerInfo.Info);
   const raw = buf.toString('latin1');
 
   return {
@@ -90,7 +90,10 @@ export async function inspectPdfDeep(buf) {
     objStreams: (raw.match(/\/ObjStm/g) ?? []).length,
     outputIntent,
     xmp,
-    hasTrimBox: Boolean(page.get(PDFName.of('TrimBox'))),
+    // PDF/X wants a TrimBox on every page and /Trapped set to True or False.
+    trimBoxOnEveryPage: doc.getPages().every((p) => Boolean(p.node.get(PDFName.of('TrimBox')))),
+    trapped: String(info?.get(PDFName.of('Trapped')) ?? ''),
+    encrypted: Boolean(doc.context.trailerInfo.Encrypt),
     deviceRgb: (raw.match(/\/DeviceRGB/g) ?? []).length,
     deviceCmyk: (raw.match(/\/DeviceCMYK/g) ?? []).length,
   };
