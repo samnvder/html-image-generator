@@ -42,13 +42,17 @@ const server = spawn(process.execPath, [path.join(PROJECT_ROOT, 'server', 'index
   env: { ...process.env, HIG_OUTPUTS_ROOT: OUTPUTS_ROOT, HIG_TEST: '1', HIG_GS: '0' },
 });
 
+// The server's own log is evidence. A9's mid-render retry announces itself on stderr,
+// and a 200 alone cannot tell a retried render from one that never needed retrying.
+let serverLog = '';
 const base = await new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('server did not report a URL within 30s')), 30_000);
   server.stdout.on('data', (d) => {
+    serverLog += d;
     const m = String(d).match(/(http:\/\/127\.0\.0\.1:\d+)/);
     if (m) { clearTimeout(timer); resolve(m[1]); }
   });
-  server.stderr.on('data', (d) => process.stderr.write(d));
+  server.stderr.on('data', (d) => { serverLog += d; process.stderr.write(d); });
 });
 const bootMs = Date.now() - t0;
 
@@ -617,6 +621,43 @@ try {
       });
       return r.status;
     }, { ...posterSpec, name: 'apptest-after-crash-2', outputs: ['pdf'] })) === 200);
+
+  console.log('— Phase 8: a browser that dies MID-render, not between renders —');
+  // getBrowser() heals a browser that died between renders, so the test above never
+  // reaches renderWithRecovery()'s one retry. This one does: schedule the kill, then
+  // start a render long enough to still be running when it lands.
+  //
+  // The delay is measured, not guessed — CI is slower than a dev box, and a hardcoded
+  // millisecond count is how this test would become flaky.
+  const legalSpec = JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'legal-form-example.json'), 'utf8'));
+  const apiRender = (spec) => page.evaluate(async (s) => {
+    const t0 = Date.now();
+    const r = await fetch('/api/render', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: s, autoOpen: false }),
+    });
+    return { status: r.status, ms: Date.now() - t0, body: await r.json() };
+  }, spec);
+
+  const baseline = await apiRender({ ...legalSpec, name: 'apptest-midrender-baseline' });
+  const delayMs = Math.max(150, Math.round(baseline.ms * 0.4));
+  check('a warm legal-form render is slow enough to crash into', baseline.status === 200 && baseline.ms > 400,
+    `${baseline.ms} ms`);
+
+  const logBefore = serverLog.length;
+  await page.evaluate(async (ms) => fetch('/api/_test/crash-browser', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ delayMs: ms }),
+  }).then((r) => r.json()), delayMs);
+  const midRender = await apiRender({ ...legalSpec, name: 'apptest-midrender' });
+
+  check(`a render interrupted by a dying Chromium still succeeds (killed at ${delayMs} ms of ~${baseline.ms})`,
+    midRender.status === 200, `${midRender.status} ${JSON.stringify(midRender.body).slice(0, 160)}`);
+  // The proof that the *retry* ran, and not merely that the kill missed the render.
+  const retried = serverLog.slice(logBefore).includes('shared Chromium died');
+  check('and the server says it caught the death mid-flight and retried once', retried,
+    serverLog.slice(logBefore).split('\n').filter(Boolean).slice(-3).join(' | ') || '(nothing logged)');
+  check('the retried render produced a real multi-page PDF',
+    midRender.body.outputs?.[0]?.format === 'pdf', JSON.stringify(midRender.body.outputs));
 
   console.log('— B3: image slots offer the real assets —');
   await loadJob('poster-example.json');

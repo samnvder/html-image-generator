@@ -240,9 +240,20 @@ app.post('/api/render', async (req, reply) => {
 });
 
 // Test-only: kill the shared Chromium so apptest can prove the server heals.
+//
+// `delayMs` schedules the kill instead of performing it, which is the only way to catch
+// a browser that dies *during* a render. getBrowser() heals one that died between
+// renders; renderWithRecovery()'s single retry is for one that dies mid-flight, and
+// nothing exercised that branch until this argument existed.
 if (process.env.HIG_TEST === '1') {
-  app.post('/api/_test/crash-browser', async () => {
-    (await getBrowser()).process()?.kill('SIGKILL');
+  app.post('/api/_test/crash-browser', async (req) => {
+    const delayMs = Number(req.body?.delayMs ?? 0);
+    const kill = async () => { (await getBrowser()).process()?.kill('SIGKILL'); };
+    if (delayMs > 0) {
+      setTimeout(() => { kill().catch(() => {}); }, delayMs).unref();
+      return { scheduled: delayMs };
+    }
+    await kill();
     return { killed: true };
   });
 }

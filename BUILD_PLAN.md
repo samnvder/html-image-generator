@@ -97,7 +97,18 @@
 
 ---
 
-## Phase 4 — Press Pipeline (optional CMYK/PDF-X) *(~medium, gated; planned in detail 2026-07-10)*
+## Phase 4 — Press Pipeline (optional CMYK/PDF-X) — **DONE 2026-07-10**
+
+Shipped 4A→4D in order, each ending with a cold `npm test`, a commit, and a push. The three pre-taken decisions all survived contact; two *planned exit tests* did not, and both were the test's fault, not the code's.
+
+**Four deviations, all forced by measurement and recorded in [RESEARCH_REPORT.md](RESEARCH_REPORT.md) §5:**
+
+1. **The level is PDF/X-4, via `-dPDFX=4` — not `-dPDFX`.** The plan said to mine press-ready's flags, and press-ready uses `-dPDFX`. That clamps Ghostscript to PDF 1.3, which has no transparency, so it **flattens the page to a bitmap**: on the shipped poster, all four embedded fonts vanish and pdf.js extracts zero characters. Exit code 0, no warning. Correct PDF/X-3 behaviour, catastrophic for this tool. **PDF/X-1a is therefore not offerable at all**, and `assets/icc/README.md` tells a printer so rather than handing them a raster.
+2. **`-dCompatibilityLevel=1.4` holds only on the no-profile path.** PDF/X-4 requires 1.6, where Ghostscript *does* write object streams — the 7E `useObjectStreams` lesson arriving from the other direction. `pdfinfo.js` grew `inspectPdfDeep()`, a pdf-lib walk of the object graph, so the fonts stay checkable. The plain CMYK conversion remains 1.4 and `/ObjStm`-free, exactly as planned.
+3. **`colorIntent: "cmyk"` requires Ghostscript ≥ 10.05.0.** Below it, `PDFX` is a *boolean* — `-dPDFX=4` dies with `/typecheck in --pdfmark--` — and a plain CMYK conversion leaves `/Group << /CS /DeviceRGB >>` behind: the objects are CMYK, the compositing is not. Both reproduced against Ubuntu 24.04's 10.02.1, downloaded and run. An old Ghostscript is, for press purposes, no Ghostscript, so it raises the same hard error. This extends decision 2 rather than departing from it: `warnings[]` may degrade a *claim*, never the pixels. CI builds 10.07.1 from source rather than test against a version the product refuses.
+4. **veraPDF cannot validate PDF/X, so the planned probe was unsatisfiable** — the third such case in this project, after B2's `/Author` regex. Its built-in profiles are PDF/A, PDF/UA and WTPDF. Conformance is asserted structurally instead, one X-4 requirement at a time, which is a harder test than a validator's green tick.
+
+One thing was added beyond the plan: a cmyk job that also asks for PNG now warns that **the PNG is RGB**. Chromium and sharp have no CMYK raster path, and a "cmyk" job silently handing back an sRGB PNG is the same shape of lie the phase exists to prevent.
 
 **Goal:** `colorIntent: "cmyk"` produces a press-ready CMYK PDF when Ghostscript is present, and a clear, immediate error when it isn't. Never a crash — and **never a silently-RGB file shipped as press output.** For a deterministic print tool, quietly delivering the wrong color space is the same class of bug as A1.
 
@@ -108,14 +119,14 @@ Standing invariants, unchanged from Phase 7: paper size is never auto-set; valid
 - `cmyk` requested + Ghostscript absent = **hard error before anything renders**, naming the fix. Not a warning, not an RGB fallback.
 - No ICC profile on disk = plain CMYK conversion with a `warnings[]` entry (the A10 channel) saying no output intent was embedded. Honest degradation — the tool never claims PDF/X compliance it didn't produce.
 
-### 4A — Detection & wrapper
+### 4A — Detection & wrapper — **DONE**
 
 1. **`scripts/press.js`** — `findGhostscript()`: honor `HIG_GS` first (an explicit path; the literal `0` forces "absent", so the missing-gs path is testable on a machine that has it — same trick as `HIG_OUTPUTS_ROOT`), then PATH (**`gswin64c.exe`** on Windows, never `gs` — the press-ready bug; `gs` on POSIX for CI), then `C:\Program Files\gs\gs*\bin`. Export `isPressAvailable()`.
 2. **`convertToCmyk(pdfIn, pdfOut, { icc })`** — Ghostscript `pdfwrite` with the flag set mined from press-ready's `src/ghostScript.ts`: `-sColorConversionStrategy=CMYK`, `-dProcessColorModel=/DeviceCMYK`, `-dPDFX` + a generated `PDFX_def.ps`. **Pin `-dCompatibilityLevel=1.4`:** PDF/X-3 is PDF-1.4-based anyway, and 1.4 forbids object streams — which keeps converted PDFs inspectable by the same regex tooling (`pdfinfo.js`) the whole suite depends on. This is the pdf-lib `useObjectStreams` lesson (7E) applied preemptively.
 
 *Exit tests (`scripts/presstest.js`, added to `npm test`, self-skipping):* with `HIG_GS=0` the suite prints SKIP lines and exits 0 — the core app must stay green on a machine with no Ghostscript. With gs present: the converted poster PDF still measures **exactly 612×792 pt**; text content unchanged (pdfInfo normalize-compare); fonts still embedded (`/FontFile` count > 0); **zero `/ObjStm`**; and `/Author` (the B2 metadata) survives conversion — Ghostscript may rewrite the file, not lose the job's provenance.
 
-### 4B — ICC profile & PDF/X level *(closes both remaining research questions)*
+### 4B — ICC profile & PDF/X level — **DONE** *(closes both remaining research questions; the profile itself is Sam's to source)*
 
 3. **ICC slot:** `assets/icc/` (gitignored except its own README). Resolution order: `HIG_ICC_PROFILE`, then `assets/icc/press.icc`. With a profile: full PDF/X output intent, ICC embedded. Without: the degradation above.
 4. **Sourcing (decision gate, owner: Sam, ~10 minutes):** `assets/icc/README.md` documents where to legally obtain GRACoL2013 (Idealliance CRPC6) or SWOP2013. **Do not commit a profile** unless its license explicitly permits redistribution — verify, don't assume.
@@ -123,7 +134,7 @@ Standing invariants, unchanged from Phase 7: paper size is never auto-set; valid
 
 *Exit tests (presstest):* with a profile present, the converted PDF's catalog carries `/OutputIntents` with subtype `/GTS_PDFX` and its Info carries `GTS_PDFXVersion` (walk the catalog with pdf-lib — precise, and already a dependency). Without a profile, conversion still succeeds and the render result's `warnings[]` says why it isn't PDF/X.
 
-### 4C — Integration: renderJob, API, UI
+### 4C — Integration: renderJob, API, UI — **DONE**
 
 6. **`renderJob()`**: when `run.colorIntent === 'cmyk'` — check `isPressAvailable()` **before composing anything** and throw the clear error if not ("colorIntent 'cmyk' requires Ghostscript; install it or use 'rgb'"); otherwise render → pdf-lib metadata stamp → convert in place → `writeLatest()`. Zero files written on the failure path.
 7. **`GET /api/capabilities`** → `{ press: boolean }`. The UI gains a Color intent control in Setup (it does not exist today — check the form, not memory), disabled with a hint when press is unavailable. No validator copy in the UI; the enum stays in `validate.js`, the environmental check stays in `renderJob`.
@@ -131,7 +142,7 @@ Standing invariants, unchanged from Phase 7: paper size is never auto-set; valid
 
 *Exit tests (presstest + apptest):* cmyk job with gs → the deliverable and `latest.pdf` are the converted file; with `HIG_GS=0` → CLI exits nonzero and `/api/render` returns 400, both messages containing "Ghostscript", and **no output file exists afterward**; apptest: `/api/capabilities` drives the control's disabled state.
 
-### 4D — CI
+### 4D — CI — **DONE**
 
 9. `sudo apt-get install -y ghostscript` in the workflow, so the full conversion path runs on every push even if the dev machine never installs it. While touching the file, bump `actions/checkout` and `actions/setup-node` to v5 — kills the Node-20 deprecation annotation on every run.
 
@@ -241,9 +252,15 @@ Five sub-phases, strictly in order — each ends with a **cold** `npm test` (del
 
 ---
 
-## Phase 8 — Residuals from Phase 7's close-out *(~tiny; do alongside 4/5, or drop each one consciously)*
+## Phase 8 — Residuals from Phase 7's close-out — **DONE 2026-07-10**
 
-Three loose ends Phase 7 identified and deliberately did not chase. None blocks anything; each should be either done or explicitly written off — not left ambiguous.
+All three resolved: two done, one confirmed still not actionable.
+
+1. **`fonttest.js` has no assertion counter — DONE.** It is now a suite with the same `check()` harness as the others: **8 assertions** (WOFF2 embedded, TTF embedded, both subsetted, both carry a `/FontFile*`, no silent system-font fallback, no `/ObjStm`, both samples survive as extractable text). It printed a verdict and exited non-zero before; it could not fail one check at a time.
+2. **A9's mid-render retry branch — DONE, and it did not flake.** `/api/_test/crash-browser` takes `{ delayMs }`, which schedules the kill instead of performing it. apptest measures a warm legal-form render, schedules the crash at 40% of that (a hardcoded millisecond count is how this test would have become flaky on a slow CI box), and then asserts three things: the render still returns 200, the *server's own stderr* carries `shared Chromium died — relaunching and retrying once`, and the retried render produced a real PDF. That middle assertion is the point — a 200 alone cannot distinguish a retried render from one the kill simply missed.
+3. **Paged.js 0.5 watch — still not actionable.** Re-checked 2026-07-10: `npm view pagedjs dist-tags` gives `latest: 0.4.3`, `beta: 0.5.0-beta.2`; the package was last published 2024-10-04. No stable tag, so nothing to upgrade to. The NLnet-funded PDF/UA tagging work remains the thing worth waiting for. Re-check when a stable 0.5.x appears.
+
+### Original plan (for reference)
 
 1. **`fonttest.js` has no assertion counter.** It's real coverage (embedding + subsetting for both formats) that contributes 0 to the suite total and can't fail per-check. Give it the same `check()` harness as the other suites (~6 assertions: WOFF2 embedded, TTF embedded, both subsetted, no Arial fallback, no `/ObjStm`). *Exit:* suite total rises accordingly and README/HANDOFF counts updated in the same commit.
 2. **A9's mid-render retry branch is untested.** `getBrowser()` heals a browser that died *between* renders; nothing exercises one that dies *during* `renderJob()`. Either extend `/api/_test/crash-browser` with `{ delayMs }` and fire it mid-way through a slow legal-form render — or write it off in HANDOFF as accepted risk. Budget: one honest attempt; if it flakes twice, document and stop. A flaky test is worse than a documented gap.
