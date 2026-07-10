@@ -1,6 +1,8 @@
 # Build Plan — HTML Image Generator
 
-*v1.2 — 2026-07-10. Executes the decisions in [INITIAL_BLUEPRINT.md](INITIAL_BLUEPRINT.md) (v1.0) and [RESEARCH_REPORT.md](RESEARCH_REPORT.md).*
+*v1.3 — 2026-07-10. Executes the decisions in [INITIAL_BLUEPRINT.md](INITIAL_BLUEPRINT.md) (v1.1) and [RESEARCH_REPORT.md](RESEARCH_REPORT.md).*
+
+*v1.3 changes: Phases 4 and 8 marked done; Phase 5 items 1 and 3 done, item 2 left with Sam. Phase 4 shipped with four measured deviations from its own plan — PDF/X-4 rather than `-dPDFX`, object streams tolerated on the X-4 path only, a Ghostscript 10.05.0 floor, and structural conformance assertions in place of a veraPDF probe that could never have run. Each is argued where it lands.*
 
 *v1.2 changes: Phase 7 marked done; Phases 4 and 5 expanded from sketches into executable plans with per-item exit tests, to the Phase-7 standard; Phase 8 added for the three residuals Phase 7's close-out identified. Phase 4's original exit test ("veraPDF reports conformance") was environmental hand-waving — it now specifies which assertions run in `npm test`, which self-skip, and which are one-time manual probes.*
 
@@ -150,10 +152,18 @@ Standing invariants, unchanged from Phase 7: paper size is never auto-set; valid
 
 ---
 
-## Phase 5 — End-to-End Proof & Hardening *(~small; item 2 needs a human at a printer)*
+## Phase 5 — End-to-End Proof & Hardening — **items 1 and 3 DONE 2026-07-10; item 2 is Sam's**
+
+1. **The LLM loop, cold — DONE, and it found two real docs bugs.** A subagent with no project context, permitted to read only `README.md`, `GUARD.md`, `jobs/schema.json` and the template the docs named, was given a plain-English brief ("a recital programme for a choir's winter concert… this is going to a commercial printer"). It completed the loop — wrote a new spec, rendered from the CLI, and the output landed exactly where README §Output routing promised. Both findings were fixed in the docs, not in the reader:
+   - **A contradiction introduced by Phase 4C.** README says thirteen variables are inferred and *one*, paper size, is demanded. GUARD's new colour-intent section then made `cmyk` a second de-facto demand for any job whose user says "commercial printer" — and `cmyk` hard-fails without Ghostscript. A faithful cold reader, following the docs exactly, rendered **nothing**. GUARD now says plainly that colour intent is inferred and stated like the other twelve, that a headless agent which cannot verify Ghostscript should render `rgb` **and say so**, and that disclosing the choice is not the forbidden fallback — only the *renderer* silently swapping colour spaces would be.
+   - **Two undocumented dead ends.** `{{key}}` substitution has no line breaks, so a six-item programme becomes one run-on paragraph; and an unfilled `{{image:slot}}` ships a *broken image glyph*, not an absent one (confirmed by rasterising the cold reader's PDF and looking at it). GUARD and README now state both, name the shipped placeholder assets, and say outright that three templates are references rather than a catalogue — authoring a new one is the expected move.
+2. **Physical print & measure (owner: Sam — the one item an agent cannot do).** Both PDFs are rendered and waiting at `outputs/south-end/posters/latest.pdf` and `outputs/south-end/legal-forms/latest.pdf`. The measurement checklist, with every expected number computed from the files themselves and blanks for the ruler, is in **HANDOFF.md → "Print & measure"**. Print with the dialog set to **Actual size** — "Fit to page" is how a perfect 612×792 pt file gets silently shrunk ~4% and "fails" the ruler. *Exit:* the numbers and the printer model recorded in HANDOFF.md. If a measurement misses, that's a finding, not a failure — diagnose before "fixing".
+3. **Docs close-out — DONE.** Blueprint §4c checklist complete and INITIAL_BLUEPRINT bumped to **v1.1**; Phase 4's PDF/X-4 and ICC verdicts folded into RESEARCH_REPORT.md, so all five research questions now carry recorded answers. HANDOFF's "Open questions" section is at zero.
+
+### Original plan (for reference)
 
 1. **The LLM loop, cold (agent-executable).** In a fresh session with no prior context, follow README → GUARD only: elicit the fourteen variables, write a *new* job spec (not an example), CLI render, confirm routing and warnings. Any friction found is a **docs bug** — fix the docs, not the reader. *Exit:* the loop completes without consulting anything outside README/GUARD/schema.
-2. **Physical print & measure (owner: Sam).** Print `latest.pdf` of the poster (Letter) and the legal form (Legal) with the print dialog set to **Actual size** — "Fit to page" is how a perfect 612×792 pt file gets silently shrunk ~4% and "fails" the ruler. Measure: the full-bleed poster covers the sheet edge-to-edge; the legal form's top margin reads 0.9 in ± 1 mm and the running header sits at the same offset on page 2 as page 1. *Exit:* the numbers and the printer model recorded in HANDOFF.md. If a measurement misses, that's a finding, not a failure — diagnose before "fixing".
+2. **Physical print & measure (owner: Sam).** Print `latest.pdf` of the poster (Letter) and the legal form (Legal) with the print dialog set to **Actual size**. Measure: the full-bleed poster covers the sheet edge-to-edge; the legal form's top margin reads 0.9 in ± 1 mm and the running header sits at the same offset on page 2 as page 1.
 3. **Docs close-out.** Blueprint §4c checklist complete; INITIAL_BLUEPRINT bumped to v1.1; Phase 4's PDF/X and ICC verdicts folded into RESEARCH_REPORT.md so all five research questions carry recorded answers. HANDOFF's "Open questions" section goes to zero.
 
 ---

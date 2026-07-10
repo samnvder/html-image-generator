@@ -29,9 +29,11 @@ node scripts/render.js jobs/poster-example.json
 The PDF opens in your default viewer and lands in `outputs/south-end/posters/`.
 
 ```bash
-npm test       # 297 assertions across 5 suites: exact page boxes, exact pixel counts,
+npm test       # 332 assertions across 6 suites: exact page boxes, exact pixel counts,
                # path security, font embedding, PDF metadata, all templates, and the
                # app driven end-to-end in a real browser. Runs in CI on every push.
+               # 362 with Ghostscript 10.05+ and an ICC profile, which is what CI runs;
+               # the press suite self-skips without them and says so.
 ```
 
 The suites render into a temp directory, never into your `outputs/`. Set `HIG_OUTPUTS_ROOT` to point the outputs root anywhere you like.
@@ -70,13 +72,21 @@ Slugification doubles as a security boundary: project names are free text that b
 | `certificate-letter.html` | Letter, **landscape** | Bordered layout, single merge field, `variants` batch render |
 | `legal-form.html` | **Legal**, portrait | Flowing multi-page text, native running header + `counter(page)` |
 
+These are **references, not a catalogue.** None of them lays out a list — a programme, a menu, an agenda — and `{{key}}` substitution carries no line breaks. Authoring a new template is the expected move for a new document shape, not a last resort. See GUARD.md's template rules.
+
 All link `templates/base.css`, which carries the `@font-face` declarations, design tokens, and the `.sheet` box. Four OFL-1.1 families ship in `fonts/` (see `fonts/manifest.json`); re-fetch fonts and their licenses with `node scripts/fetch-fonts.js`.
 
 > **Font licensing.** Inter, Source Serif 4, Playfair Display, and Open Sans are all SIL Open Font License 1.1 — free to embed in PDFs and to redistribute, *provided the license text travels with the fonts.* The full texts live in `fonts/licenses/`, one per family. If you vendor these fonts elsewhere, take that folder with them.
 
-**Image slots** are the deliberate boundary: the layout declares art zones (`{{image:background}}`), and photos or diffusion output fill them. The deterministic layer owns every glyph and every dimension.
+**Image slots** are the deliberate boundary: the layout declares art zones (`{{image:background}}`), and photos or diffusion output fill them. The deterministic layer owns every glyph and every dimension. Fill every slot you declare — an unfilled one keeps the literal placeholder as its `src` and ships a broken image; `assets/` carries two placeholders for exactly this.
 
 Content is **text, not markup**: `{{key}}` HTML-escapes its value, so `use <Enter> to submit` prints as those exact characters. A template that genuinely wants markup from a value asks for it with `{{{key}}}`.
+
+## Going to a commercial press
+
+`colorIntent: "cmyk"` converts the PDF through Ghostscript **10.05.0 or newer** — in place, before `latest.pdf` is written. Drop a CMYK ICC profile at `assets/icc/press.icc` and the output is **PDF/X-4**, with the profile embedded as the output intent; without one it is a plain CMYK PDF and the render says so in its warnings, rather than claiming a conformance it didn't produce. See [`assets/icc/README.md`](assets/icc/README.md).
+
+Ghostscript is **never required by the core app**. A `cmyk` job on a machine without it (or with one older than 10.05) fails loudly before anything renders, naming the fix. It never falls back to RGB — an RGB file shipped as press output is a wasted print run, and a silent one. PDF/X-1a and X-3 are not offered: Ghostscript writes them as PDF 1.3, which has no transparency, so the page is flattened to a bitmap and every font is lost.
 
 ## How it renders
 
@@ -111,9 +121,11 @@ server/ui/             the UI — plain HTML/CSS/JS, no framework
 scripts/render.js      the engine — also exports renderJob(spec, {browser})
 scripts/paths.js       slugify, pluralize, output routing, latest.* copies
 scripts/pdfinfo.js     PDF page box, text, and embedded-font inspection
+scripts/press.js       Ghostscript detection + the CMYK / PDF-X-4 conversion
 scripts/selftest.js    Phase 1 exit tests (hard numbers)
 scripts/templatetest.js  every template renders clean
 scripts/fonttest.js    font embedding proof
+scripts/presstest.js   the press pipeline; self-skips without Ghostscript
 scripts/apptest.js     drives the real server + real browser
 templates/             base.css + three reference templates
 fonts/                 OFL fonts + manifest.json
@@ -123,7 +135,7 @@ outputs/               renders (gitignored)
 
 ## Status
 
-Phases 0–3 complete — the MVP. Phase 4 (optional Ghostscript CMYK / PDF-X) and Phase 5 (print and measure) are in [`BUILD_PLAN.md`](BUILD_PLAN.md).
+All phases complete. The MVP (0–3), the validation and UX overhaul (6), the audit remediation (7), the press pipeline (4), and the residuals (8). One item remains and it needs a human with a ruler: printing the two reference PDFs and measuring them. The checklist, with every expected number precomputed from the files, is in [`HANDOFF.md`](HANDOFF.md). Phase history and the four measured deviations Phase 4 made from its own plan are in [`BUILD_PLAN.md`](BUILD_PLAN.md).
 
 ## License
 

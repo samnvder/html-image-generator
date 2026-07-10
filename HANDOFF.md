@@ -1,6 +1,6 @@
 # Handoff — HTML Image Generator
 
-*Written 2026-07-09, current as of 2026-07-10. Read this first. **Phases 0–3, 6 and 7 are built, green, and in CI**; Phases 4 and 5 remain planning. The "facts that will bite you" at the bottom are the expensive part.*
+*Written 2026-07-09, current as of 2026-07-10. Read this first. **Every phase is built, green, and in CI.** One item remains, and it needs a human with a ruler — see "Print & measure". The "facts that will bite you" at the bottom are the expensive part.*
 
 ---
 
@@ -20,24 +20,25 @@ A **deterministic image generator for print**. Instead of a diffusion model gues
 
 | File | What it is | Status |
 |---|---|---|
-| [INITIAL_BLUEPRINT.md](INITIAL_BLUEPRINT.md) | The concept, the Question Guard, the decided toolchain, output routing | **v1.0 — current** |
-| [RESEARCH_REPORT.md](RESEARCH_REPORT.md) | Cited deep research: 23 sources, 25 claims adversarially verified (21 confirmed / 4 refuted) | **Complete**, 3 open questions now answered |
-| [BUILD_PLAN.md](BUILD_PLAN.md) | Phased build plan with exit tests per phase | **v1.1 — current** |
+| [INITIAL_BLUEPRINT.md](INITIAL_BLUEPRINT.md) | The concept, the Question Guard, the decided toolchain, output routing | **v1.1 — current**, §4c checklist closed |
+| [RESEARCH_REPORT.md](RESEARCH_REPORT.md) | Cited deep research: 23 sources, 25 claims adversarially verified (21 confirmed / 4 refuted) | **Complete**, all 5 open questions answered |
+| [BUILD_PLAN.md](BUILD_PLAN.md) | Phased build plan with exit tests per phase | **v1.3 — current** |
 | [GUARD.md](GUARD.md) | The Question Guard, as direct LLM operating instructions | **Live** |
 | [README.md](README.md) | Entry point for humans and agents | **Live** |
 | `HANDOFF.md` | This file | — |
 
-**Phases 0–3, 6 and 7 are built and green. The product exists.** `npm start` (or double-clicking `Start.cmd`) boots a server in ~1s, picks a free port, and opens the browser on a live true-size preview. `npm test` runs five suites, all passing, and **CI runs them on every push** (`.github/workflows/test.yml`, ubuntu-latest, Node 22):
+**Every phase is built and green. The product exists.** `npm start` (or double-clicking `Start.cmd`) boots a server in ~1s, picks a free port, and opens the browser on a live true-size preview. `npm test` runs six suites, all passing, and **CI runs them on every push** (`.github/workflows/test.yml`, ubuntu-latest, Node 22, with Ghostscript 10.07.1 built from source and cached):
 
 - `validatetest.js` — **100.** Pluralize idempotency (the `posterses` regression), CSS-length parsing, 24 malformed-spec cases each rejected on the right field, `isInside()` containment including the sibling-prefix trap, the `pdfOnly` rule, and every shipped job file walked through both the runtime validator and the published schema.
 - `selftest.js` — **36.** Letter PDF exactly 612×792 pt, Legal 612×1008 pt, Letter PNG @300 exactly 2550×3300 px reading back `density: 300`. Path-traversal and Windows-reserved-name rejection. Both build-time probes. A1 (bleed PNG is a trim render), A2 (content is text), A4 (variants don't overwrite), A7 (nothing lands in the user's `outputs/`).
 - `templatetest.js` — **67.** All three reference templates: correct page box, expected page count, no unfilled `{{placeholders}}` surviving into the PDF, every declared font embedded, no silent fallback to Arial, PDF metadata stamped, tagging preserved, no object streams.
-- `fonttest.js` — WOFF2 and TTF both embed and subset. *(A probe/report script — it prints a verdict and exits non-zero on failure, but has no assertion counter, so it contributes 0 to the total.)*
-- `apptest.js` — **94.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, the gallery renders one real thumbnail per template, template config drives the form, invalid fields block Render with inline messages, dark mode switches, a UI render matches a CLI render, a slugified job name saves, the picker only offers loadable jobs, a SIGKILLed Chromium heals, placeholder warnings reach the drawer, a UI render persists its spec, and image slots offer real assets.
+- `fonttest.js` — **8.** WOFF2 and TTF both embed, both subset, both carry a `/FontFile*`, neither falls back to a system font, no `/ObjStm`, and both samples survive as extractable text.
+- `presstest.js` — **17** without Ghostscript, **47** with it. Self-skips its conversion block when Ghostscript is absent or older than 10.05.0, and says which. Always runs the hard-fail contract (a cmyk job dies before Chromium launches, leaves no folder, and the CLI exits nonzero saying "Ghostscript") and the version gate. With Ghostscript: plain CMYK stays 612×792 pt, PDF 1.4, `/ObjStm`-free, fonts embedded, text unrasterized, provenance intact; with an ICC profile, PDF/X-4 with `/OutputIntents` `/GTS_PDFX`, a four-channel `/DestOutputProfile`, the XMP `pdfxid` identification, a `/TrimBox` on every page, `/Trapped /False`, and all four fonts still embedded.
+- `apptest.js` — **104.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, the gallery renders one real thumbnail per template, template config drives the form, invalid fields block Render with inline messages, dark mode switches, a UI render matches a CLI render, a slugified job name saves, the picker only offers loadable jobs, a SIGKILLed Chromium heals *and one killed mid-render is retried*, placeholder warnings reach the drawer, a UI render persists its spec, image slots offer real assets, and `/api/capabilities` drives the CMYK control.
 
-**297 assertions total.**
+**332 assertions** on a machine without Ghostscript; **362** with Ghostscript 10.07.1 and an ICC profile, which is what CI runs.
 
-**Next: Phases 4 → 5 → 8, now planned to the Phase-7 standard** — see [BUILD_PLAN.md](BUILD_PLAN.md) v1.2. Phase 4 is the press pipeline (gated on Ghostscript; its test suite self-skips without it, and CI installs it so the full path always runs somewhere). Phase 5 is the end-to-end proof — **item 2 needs Sam at a physical printer**. Phase 8 is three small residuals from 7's close-out. All optional; the MVP is done and the audit fully remediated. Three Phase-4 decisions are pre-taken in the plan (in-place CMYK conversion, hard-fail without Ghostscript, honest non-X degradation without an ICC profile) — veto them before starting, not after.
+**All phases are closed.** Phase 4 shipped the press pipeline (PDF/X-4, gated on Ghostscript ≥ 10.05.0, hard-failing rather than degrading). Phase 5's cold-read and docs items are done; **item 2 needs Sam at a physical printer** — see "Print & measure" below. Phase 8's three residuals are resolved. See [BUILD_PLAN.md](BUILD_PLAN.md) v1.3 for the four measured deviations Phase 4 made from its own plan.
 
 ### What the build proved (research questions closed)
 
@@ -119,24 +120,92 @@ Two fixes came from *looking* at the app rather than testing it:
 - **7D — hardening.** `startsWith` containment → `isInside()`; `pdfOnly` enforced in the validator instead of being a UI hint; a crashed Chromium relaunches instead of bricking the server; unfilled-placeholder warnings travel back to the caller; the published schema stopped rejecting its own examples.
 - **7E — reproducibility & polish.** Every UI render persists its spec (the Guard's promise, now enforced from both sides). PDF Author/Subject/Creator via `pdf-lib`. Image-slot picker with live previews. Favicon. All five dependency majors upgraded, none needed pinning back.
 
-Phases 4 (gated CMYK) and 5 (print and measure) remain open.
+**Phase 4 is DONE (2026-07-10)** — the press pipeline. `colorIntent: "cmyk"` converts the PDF in place through Ghostscript before `latest.pdf` is written; with an ICC profile the output is **PDF/X-4**. Four things the plan assumed turned out to be false, and each was measured against a real binary rather than reasoned about:
+
+- **`-dPDFX` — the flag `press-ready` uses — destroys the document.** Ghostscript clamps PDF/X-1a and X-3 to PDF 1.3, which has no transparency, so it flattens the page. On the shipped poster: 752 KB → 1.9 MB, all four embedded fonts gone, zero extractable characters, the whole page a 600-dpi bitmap, exit code 0. **`-dPDFX=4` is the answer** — PDF 1.6, live transparency, vector text, the XMP `pdfxid` identification X-4 requires.
+- **PDF/X-4 needs Ghostscript ≥ 10.05.0, and older versions are refused outright.** Before 10.05, `PDFX` is a *boolean* and `-dPDFX=4` dies with `/typecheck in --pdfmark--`; worse, a plain CMYK conversion on 10.02.1 leaves `/Group << /CS /DeviceRGB >>` behind — the objects are CMYK, the compositing is not. Ubuntu 24.04's apt ships exactly 10.02.1. A Ghostscript that can neither carry an output intent nor finish the conversion is, for press purposes, absent.
+- **veraPDF cannot validate PDF/X.** Its profiles are PDF/A, PDF/UA and WTPDF. The planned exit test could never have passed. Conformance is asserted structurally instead, one X-4 requirement at a time — a harder test than a validator's tick.
+- **The `-dCompatibilityLevel=1.4` pin survives only on the no-profile path.** PDF/X-4 is PDF 1.6, where Ghostscript writes object streams, so `pdfinfo.js` grew `inspectPdfDeep()` (a pdf-lib walk of the object graph) to see fonts a regex can't.
+
+**Phase 5 is DONE except the ruler (2026-07-10).** A subagent with no project context, allowed to read only README/GUARD/schema, ran the whole loop cold and found two documentation defects — one of them introduced by Phase 4C itself. See "The cold read" below.
+
+**Phase 8 is DONE (2026-07-10).** `fonttest.js` is a real suite (8 assertions) instead of a pass/fail script; A9's mid-render retry branch is tested via `/api/_test/crash-browser { delayMs }` and did not flake; Paged.js still has no stable 0.5 (`latest: 0.4.3`, last published 2024-10-04).
+
+### The cold read (Phase 5 item 1)
+
+Worth reading, because the failure mode was self-inflicted and invisible from the inside.
+
+- **Phase 4C wrote a contradiction into the docs.** README promises thirteen inferred variables and *one* demanded (paper size). GUARD's new colour-intent section then made `cmyk` a second de-facto demand for any job whose user says "commercial printer" — and `cmyk` hard-fails without Ghostscript. A cold reader following the docs faithfully rendered **nothing at all**. GUARD now states that colour intent is inferred and stated like the other twelve, and that a headless agent which cannot verify Ghostscript should render `rgb` **and say so**. Disclosing the choice is not the forbidden fallback; only the *renderer* silently swapping colour spaces would be.
+- **Two dead ends nothing documented.** `{{key}}` substitution has no line breaks, so a six-item programme collapses into one run-on paragraph. And an unfilled `{{image:slot}}` ships a **broken-image glyph**, not an absent image — confirmed by rasterising the cold reader's PDF and looking at it. Both are now stated in GUARD and README, along with the shipped placeholder assets and the fact that three templates are references, not a catalogue.
 
 ---
 
 ## Open questions
 
-Three of the five are now closed by build-time tests. Two remain — both in Phase 4. Don't assume; test.
+**Zero.** All five are closed, each by a test that runs on every push rather than by a note in a document.
 
-**Still open:**
-
-1. **Ghostscript 10.x PDF/X levels:** does it do X-4? The "X-1 and X-3 only" claim was refuted, so its real coverage is unknown. Validate output with veraPDF. (Phase 4.)
-2. **US CMYK ICC profile:** where to legally obtain/redistribute GRACoL2013 or SWOP. (Phase 4.)
-
-**Closed:**
-
+1. ~~Ghostscript PDF/X levels~~ — **PDF/X-4, via `-dPDFX=4`, on Ghostscript ≥ 10.05.0 only.** `-dPDFX` (X-1a/X-3) clamps to PDF 1.3, which has no transparency, and flattens the page to a bitmap: every font unembedded, zero extractable characters, exit code 0. **veraPDF cannot validate PDF/X at all**, so the planned probe was unsatisfiable; conformance is asserted structurally. (`scripts/presstest.js`; RESEARCH_REPORT §5.)
+2. ~~US CMYK ICC profile~~ — sources and licences documented in [`assets/icc/README.md`](assets/icc/README.md). **None committed**; without one the tool converts to plain CMYK and says so. (Phase 4B. **Sam still has to source one** — see below.)
 3. ~~Font embedding, WOFF2 vs TTF~~ — both embed and subset identically; prefer WOFF2. (`scripts/fonttest.js`.)
 4. ~~Chrome native `@page` margin boxes~~ — supported in Chrome 148, `counter(page)` included. Paged.js is not needed for headers/footers. (`selftest.js` Probe B, and `legal-form.html` uses them.)
 5. ~~deviceScaleFactor truncation~~ — does not reproduce at DSF 3.125. (`selftest.js` Probe A.)
+
+---
+
+## What is waiting on Sam
+
+Two things. Neither blocks anything else; both are the kind an agent must not fake.
+
+### 1. A press ICC profile (~10 minutes)
+
+`colorIntent: "cmyk"` works today and produces a correct CMYK PDF. It becomes **PDF/X-4** the moment a profile exists at `assets/icc/press.icc` (or `HIG_ICC_PROFILE` points at one) — the whole code path is built, tested, and running in CI against Ghostscript's own generic profile.
+
+What's needed is a *real* characterization, and it's the printer's call, not the tool's:
+
+> **Ask the printer:** "Which output intent do you want — GRACoL2013 CRPC6, SWOP2013, or one of your own? And do you want PDF/X-4, or do you need X-1a?"
+
+If they say **X-1a, this pipeline cannot serve them honestly** — Ghostscript writes X-1a as PDF 1.3, which flattens every transparency and unembeds every font. Tell them; don't hand them a raster.
+
+Sourcing and licences are in [`assets/icc/README.md`](assets/icc/README.md). **Do not commit a profile unless its licence explicitly permits redistribution** — the folder is gitignored precisely so it can't happen by accident. Drop the file in and `node scripts/presstest.js` lights up its PDF/X-4 block.
+
+### 2. Print & measure (~15 minutes, a ruler, a printer)
+
+Both PDFs are rendered and waiting. **Set the print dialog to "Actual size", not "Fit to page"** — fit-to-page silently shrinks a perfect 612×792 pt file by ~4%, and every number below then misses.
+
+| | |
+|---|---|
+| Poster (Letter) | `outputs/south-end/posters/latest.pdf` |
+| Legal form (Legal) | `outputs/south-end/legal-forms/latest.pdf` |
+
+Expected values are computed *from the files themselves*, not from the design intent. If the ruler disagrees, that is a finding — diagnose before "fixing".
+
+**Poster — Letter, 612 × 792 pt (8.5 × 11.0 in), margin 0, full bleed to trim**
+
+| Measure | File says | Ruler says |
+|---|---|---|
+| Sheet | 8.5 × 11.0 in | ☐ ______ |
+| Left paper edge → left of the "S" in "SOUTH END KITCHEN" | 19.05 mm (0.750 in) | ☐ ______ |
+| Top paper edge → baseline of "SOUTH END KITCHEN" | 22.75 mm (0.896 in) | ☐ ______ |
+| Dark field reaches all four edges of the **printable area** | yes | ☐ ______ |
+
+> **The trap in the fourth row.** A desktop printer has an unprintable margin of roughly 3–5 mm on each side, so a full-bleed poster physically *cannot* reach the paper's edge. That is the printer, not the file. What you're checking is that the white border is **uniform on all four sides and no wider than that unprintable strip**. A white frame of even width much beyond ~5 mm, or one visibly wider on one side, means "Fit to page" — go back and set Actual size.
+
+**Legal form — Legal, 612 × 1008 pt (8.5 × 14.0 in), margin `0.9in 0.85in`**
+
+| Measure | File says | Page 1 | Page 2 |
+|---|---|---|---|
+| Sheet | 8.5 × 14.0 in | ☐ ______ | ☐ ______ |
+| Top paper edge → top of the body text ("SOUTH END HOSPITALITY GROUP") | **23.02 mm (0.906 in)** — the 0.9 in margin | ☐ ______ | — |
+| Left paper edge → left text edge | 21.59 mm (0.850 in) | ☐ ______ | ☐ ______ |
+| Top paper edge → **top of "FORM SE-114"** (running header) | **9.61 mm (0.378 in)** | ☐ ______ | ☐ ______ |
+| Header offset identical on both pages? | yes — 27.25 pt on both | ☐ ______ | |
+| Footer reads | "Page 1 of 2" | "Page 2 of 2" | |
+
+The **0.906 in top margin is the scale check**: a fit-to-page shrink centres the content, so a ~4% reduction pushes that reading out to roughly 29 mm. The ±1 mm tolerance catches it easily.
+
+**Record here:** printer model ______________________ · driver/dialog ______________________ · date ______________
+
+**Result:** ☐ all measurements within tolerance ☐ discrepancy: ______________________________________________
 
 ---
 
@@ -178,4 +247,25 @@ Data merge (CSV → N certificates), n-up imposition / label sheets (Avery), A4 
 - **Every UI render writes a job file** (B1), so `jobs/` grows during a test run. `apptest` snapshots the directory up front and deletes whatever is new. For the same reason, `thumbs.js` prefers `*-example.json` when choosing a template's showcase job — otherwise a job saved as `aaa.json` would quietly become the poster's gallery thumbnail.
 - **A `_`-prefixed template is a fixture, invisible to the gallery.** A job spec pointing at one is therefore unloadable in the UI, which is why `/api/jobs` filters by "template is in the gallery" and not merely by filename.
 - **Chromium's sandbox needs unprivileged user namespaces, which Ubuntu 24.04 blocks by AppArmor.** CI relaxes `kernel.apparmor_restrict_unprivileged_userns` rather than threading `--no-sandbox` through five `puppeteer.launch()` sites.
-- **A9's retry branch is belt, not braces.** `getBrowser()` notices `browser.connected === false` and relaunches *before* `renderJob()` runs, so the crash test exercises the lazy relaunch, not the one-shot retry. A browser that dies *mid-render* is what the retry catches, and nothing tests that path.
+- **A9's retry branch is belt, not braces.** `getBrowser()` notices `browser.connected === false` and relaunches *before* `renderJob()` runs, so the plain crash test exercises the lazy relaunch, not the one-shot retry. Killing the browser *mid-render* is what reaches the retry — `POST /api/_test/crash-browser { delayMs }` schedules the kill, and apptest times it against a measured legal-form render. (Closed in Phase 8.)
+
+### Earned in Phase 4 (the press pipeline)
+
+- **`-dPDFX` is the one flag not to copy from `press-ready`.** It means PDF/X-3, and Ghostscript writes X-1a/X-3 as **PDF 1.3**, which has no transparency. Any `rgba()` or gradient — most of what an HTML poster is — forces a flatten: the whole page becomes a 600-dpi bitmap, all fonts unembedded, no extractable text, **exit code 0 and no warning**. Use `-dPDFX=4`. This is A1 in a new costume: the wrong document, delivered silently.
+- **`-dPDFX=4` requires Ghostscript ≥ 10.05.0.** Before that, `PDFX` is a boolean and `-dPDFX=4` dies with `/typecheck in --pdfmark--`. Ubuntu 24.04's `apt-get install ghostscript` gives **10.02.1**, which also leaves `/Group << /CS /DeviceRGB >>` in a "CMYK" file. Both reproduced against the real binary. `press.js` refuses old versions; CI builds 10.07.1 from source.
+- **veraPDF does not validate PDF/X.** Its flavours are PDF/A (1a–4e), PDF/UA (ua1, ua2) and WTPDF. There is no free PDF/X validator to run. Assert the requirements structurally: `/OutputIntents` with `/S /GTS_PDFX`, a four-channel `/DestOutputProfile`, XMP `pdfxid:GTS_PDFXVersion`, `/TrimBox` on every page, `/Trapped` not Unknown, fonts embedded, no RGB colour space.
+- **Ghostscript runs under SAFER by default (since 9.50).** The `PDFX_def.ps` line `ICCProfile (r) file` dies with `/invalidfileaccess` unless `--permit-file-read=<profile>` names it. Use forward slashes in the PostScript string: `\` is an escape character there.
+- **A failed Ghostscript run leaves a truncated ~1.4 KB PDF at the output path.** Delete it and throw. A partial press PDF is worse than none. And keep more than the last line of its output — the cause (`/typecheck`, `/invalidfileaccess`) is printed several lines above the `Unrecoverable error` it exits on, and it splits itself across stdout and stderr.
+- **`pdfwrite` drops the tagged-PDF structure tree.** `/StructTreeRoot` survives Chromium and `pdf-lib`, not Ghostscript. PDF/X doesn't want it; just don't assert it on a converted file.
+- **A PDFDict's own `.dict` property is its internal Map.** `obj.dict ?? obj` therefore skips every dictionary in the file and reports zero fonts everywhere. Use `obj instanceof PDFStream ? obj.dict : obj`.
+- **"No DeviceRGB left" as a byte count is not a test.** A count can't tell an RGB image resource from a transparency group's blending space, and that difference *is* the finding. Walk the objects and name the carrier.
+- **`-dPDFSETTINGS=/prepress` sets CompatibilityLevel silently.** Pin `-dCompatibilityLevel` *after* it, or you get whatever the preset chose. And `-dPDFX=4` overrides even that, forcing 1.6.
+- **PDF 1.6 means Ghostscript writes `/ObjStm`.** A converted PDF/X-4 file is not regex-inspectable — the whole premise `pdfinfo.js` rests on. `inspectPdfDeep()` (pdf-lib) sees through them. The 1.4 pin still holds for the plain CMYK path, which stays object-stream-free.
+- **The image's `load` event is a task; `naturalWidth` is not.** Reading `img.hidden` and `img.naturalWidth` in the same tick catches the gap where the image has decoded but the `onload` handler hasn't run — a loaded image reported as hidden. Wait for the handler.
+- **A "cmyk" job's PNG is still RGB.** Chromium and sharp have no CMYK raster path. `renderJob()` warns rather than letting an sRGB PNG pass as press output.
+
+### Earned in Phase 5 (the cold read)
+
+- **Documentation contradictions are invisible from the inside.** Phase 4C's GUARD section quietly created a *second* mandatory variable, contradicting README's "one demanded variable" promise, and turned "this is going to a commercial printer" into a guaranteed zero-output run. Nobody who knew the codebase would ever have hit it. Re-run the cold read (a subagent restricted to README/GUARD/schema) after any change to the operating contract.
+- **An unfilled `{{image:slot}}` is a broken image, not an absent one.** The `src` keeps the literal placeholder and the PDF ships a broken-image glyph. `assets/` has two placeholders; use them.
+- **`{{key}}` has no line breaks.** Newlines are whitespace to HTML. Any list, stanza, or multi-line body needs a template exposing a `{{{triple-stache}}}` and receiving real markup. None of the three reference templates does — which is the honest answer to "there's no template for a programme": write one.

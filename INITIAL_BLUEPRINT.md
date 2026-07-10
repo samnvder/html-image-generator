@@ -1,6 +1,6 @@
 # Initial Blueprint — HTML Image Generator
 
-*Status: v1.0 — toolchain decided via deep research (2026-07-09). Full cited findings in [RESEARCH_REPORT.md](RESEARCH_REPORT.md).*
+*Status: v1.1 — 2026-07-10. Toolchain decided via deep research (2026-07-09); the §4c verification checklist is now closed, every item answered by a build-time test rather than a document. Full cited findings in [RESEARCH_REPORT.md](RESEARCH_REPORT.md); the two press answers differ from what this blueprint assumed, and §4a records the correction.*
 
 ---
 
@@ -126,7 +126,7 @@ outputs/ folder, named + dated
 - **Render engine:** **Puppeteer.** Verified: Puppeteer and Playwright drive the identical Chromium `Page.printToPDF` path, so fidelity is the same; Puppeteer wins on ecosystem fit (pagedjs-cli is Puppeteer-backed → one shared Chromium) and emits tagged/accessible PDFs by default.
 - **Print CSS / pagination:** **Paged.js.** Required because the `@page` `bleed`/`marks` descriptors are supported by **no browser** — Paged.js (or manual oversized-page layout) is the only local route to bleed and crop marks, plus running headers/footers and the dimensionally accurate in-browser preview.
 - **PNG DPI fix:** Chromium never writes DPI metadata into PNGs — **sharp** post-processes each raster output to embed the `pHYs` chunk (e.g., 300 DPI).
-- **CMYK / press:** **Ghostscript** (`gswin64c` on Windows) with `-sColorConversionStrategy=CMYK` + customized `PDFX_def.ps` + a separately obtained US press ICC profile (GRACoL/SWOP — Ghostscript ships none). The unmaintained `press-ready` CLI serves as a flag reference, not a dependency.
+- **CMYK / press:** **Ghostscript 10.05.0+** (`gswin64c` on Windows) with `-sColorConversionStrategy=CMYK`, `-dPDFX=4`, and a generated `PDFX_def.ps` embedding a separately obtained US press ICC profile (GRACoL/SWOP — Ghostscript ships none usable as an output intent). The unmaintained `press-ready` CLI serves as a flag reference, not a dependency — and **its `-dPDFX` is the one flag not to copy**: it means PDF/X-3, which Ghostscript writes as PDF 1.3, flattening every transparency and every font into a raster. See RESEARCH_REPORT §5.
 - **Rejected:** wkhtmltopdf (ancient QtWebKit engine), WeasyPrint (no JS execution), pdfme (JSON schemas, not HTML/CSS — but study its WYSIWYG designer UI), react-print-pdf (cloud-rendered, unmaintained), Satori (SVG-subset flexbox only).
 
 ## 4b. Local App — One Command, Opens Itself
@@ -141,11 +141,13 @@ outputs/ folder, named + dated
 
 ## 4c. Build-Time Verification Checklist (open questions from research)
 
-- [ ] Font embedding: confirm WOFF2 vs TTF `@font-face` behavior in Chromium PDFs empirically (`pdffonts` on a test render).
-- [ ] Ghostscript 10.x PDF/X-4 support; validate outputs with veraPDF.
-- [ ] Legal source for a US CMYK ICC profile (GRACoL2013/CGATS21 or SWOP).
-- [ ] Whether Chrome 131+ native `@page` margin boxes reduce the need for Paged.js on headers/footers.
-- [ ] Screenshot truncation at high deviceScaleFactor — regression-test at DSF 3.125 (300 DPI).
+**All five closed.** Each answer is now a test that runs on every push, not a note in a document.
+
+- [x] **Font embedding: WOFF2 vs TTF.** Both embed and subset *identically* — Chromium decodes WOFF2 and re-embeds the glyf table as a subsetted TrueType (`/FontFile2`). Format choice is a delivery detail, not a fidelity one; prefer WOFF2. Bonus: Chromium writes no `/ObjStm`, so PDF font structure is regex-inspectable. (`scripts/fonttest.js`, Phase 2.)
+- [x] **Ghostscript PDF/X level.** **PDF/X-4, via `-dPDFX=4`, and only on Ghostscript ≥ 10.05.0.** `-dPDFX` — which means X-3 and is what `press-ready` uses — clamps output to PDF 1.3, which has no transparency, and *flattens the page to a bitmap*: every font unembedded, no extractable text, exit code 0. **veraPDF cannot validate PDF/X at all** (PDF/A + PDF/UA + WTPDF only), so that half of the checklist item was unsatisfiable as written; conformance is asserted structurally instead, one X-4 requirement at a time. (`scripts/presstest.js`, Phase 4.)
+- [x] **Legal source for a US CMYK ICC profile.** Documented in [`assets/icc/README.md`](assets/icc/README.md): GRACoL2013 CRPC6 / SWOP2013 from Idealliance's CGATS.21 set (free to use; redistribution terms travel with the download), ECI's FOGRA profiles for Europe. **None is committed** — the folder is gitignored but for its README, and without a profile the tool degrades to plain CMYK with a warning rather than faking a PDF/X claim. (Phase 4B.)
+- [x] **Chrome native `@page` margin boxes.** Supported in Chrome 148, `counter(page)` included. Paged.js is *not* needed for running headers or footers — its role narrows to bleed, crop marks, and the paginated preview. (`selftest.js` Probe B; `legal-form.html` uses them for real.)
+- [x] **Screenshot truncation at high deviceScaleFactor.** Does not reproduce at DSF 3.125. A 0.5in corner marker at the extreme bottom-right of a Letter@300 screenshot survives intact, 2550×3300 px exact. (`selftest.js` Probe A.)
 
 ---
 

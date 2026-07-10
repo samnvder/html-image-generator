@@ -67,6 +67,12 @@ Note what happened: thirteen decisions were made *for* the user and shown for co
    - `poster-letter.html` — full-bleed art, big display type, image slot
    - `certificate-letter.html` — landscape, bordered, single merge field for the recipient name
    - `legal-form.html` — Legal size, flowing multi-page text, native running header/footer
+
+   **Three is not a library.** They are references, not a catalogue: none of them lays out
+   a *list* — a programme, a menu, an agenda, a price sheet. Authoring a new template is
+   the expected move, not a last resort. Do not cram a list into `poster-letter`'s
+   `subhead`; the `{{key}}` substitution has no line breaks (see below) and you will get
+   one run-on paragraph.
 3. **Render:** `node scripts/render.js jobs/<name>.json` (add `--no-open` to suppress the viewer).
 4. **Report the output path.** Renders land in `outputs/<project-slug>/<doctype-plural>/`, plus a `latest.pdf` copy.
 
@@ -74,10 +80,29 @@ Note what happened: thirteen decisions were made *for* the user and shown for co
 
 ## Color intent, if the job is going to a commercial press
 
-`colorIntent: "cmyk"` is the only variable that depends on the *machine* rather than the
-spec. Ask for it when the user says "press", "printer" (the company, not the device), or
-"CMYK". Otherwise leave it `rgb` and say so.
+`colorIntent` is the only variable that depends on the *machine* rather than the spec.
 
+**It is not a second demand.** Paper size remains the only variable you must have
+confirmed. Colour intent you infer and state, exactly like the other twelve.
+
+Infer `cmyk` when the user names a commercial press. But before you write it into the
+spec, know that a `cmyk` job **hard-fails without Ghostscript 10.05.0 or newer** — and
+headless, you usually cannot verify that it's installed. When you can't:
+
+> **Render `rgb`, and say so out loud.**
+>
+> *"Rendered RGB. A press-ready CMYK / PDF-X-4 file needs Ghostscript 10.05+ on this
+> machine — install it and I'll re-render from the same job spec, no rework."*
+
+Choosing `rgb` and disclosing it is not the forbidden fallback. The forbidden fallback is
+the *renderer* quietly handing back an RGB file while the spec says `cmyk` — which it
+never does; it refuses. Your job is to not paint yourself into that refusal without
+telling the user why.
+
+If you *can* verify Ghostscript (`colorIntent: "cmyk"` renders without error), then:
+
+- **A press job asks for `outputs: ["pdf"]`.** The PNG is a convenience raster with no
+  CMYK path, so a cmyk job that also asks for PNG gets a warning saying the PNG is RGB.
 - **A cmyk job's PDF deliverable *is* the converted file.** Ghostscript converts it in
   place, before `latest.pdf` is written. No RGB intermediate survives — the job spec
   reproduces the render on demand, which is what the spec is for.
@@ -94,8 +119,6 @@ spec. Ask for it when the user says "press", "printer" (the company, not the dev
 - **PDF/X-1a and X-3 are not offered.** Ghostscript writes them as PDF 1.3, which has no
   transparency, so it flattens the page to a bitmap: no embedded fonts, no selectable
   text. If a printer insists on X-1a, tell them; don't hand them a raster.
-- **The PNG stays RGB.** `colorIntent` applies to the PDF only, and a cmyk job that also
-  asks for PNG gets a warning saying so.
 
 ---
 
@@ -108,7 +131,9 @@ spec. Ask for it when the user says "press", "printer" (the company, not the dev
 - **Running headers and footers use native `@page` margin boxes** (`@top-left`, `@bottom-center`, `counter(page)`). Verified working in Chrome 148. You do not need Paged.js for these.
 - **Flowing multi-page templates are PDF-only.** A screenshot has no page breaks. Set `outputs: ["pdf"]`.
 - **`{{placeholder}}`** is the substitution syntax. Image slots use `{{image:slotname}}`. Unfilled placeholders survive into the output and log a warning — they are meant to be visible, not silent.
+- **An unfilled `{{image:slot}}` is a broken image, not an absent one.** The `src` keeps the literal placeholder, so the PDF ships with a broken-image glyph where the art should be. Fill every slot: `assets/` carries `placeholder-background.png` and `placeholder-seal.png` for exactly this. If the design genuinely has no art, use a template that has no image slot.
 - **Content is text, not markup.** `{{key}}` HTML-escapes its value, so `use <Enter> to submit` reaches the page as those exact characters and a stray `<b>` never becomes an element. Escaping is attribute-safe, so `src="{{image:slot}}"` works unchanged. When a value is *meant* to be markup, ask for it explicitly with the triple-stache **`{{{key}}}`**.
+- **`{{key}}` has no line breaks.** A newline in a content value is just whitespace to HTML: six programme items separated by `\n` render as one wrapped paragraph. A list, a stanza, or any multi-line body needs a template that exposes a **`{{{triple-stache}}}`** field and receives real markup (`<li>…</li>`). None of the three reference templates does — write one.
 
 ## Facts that will bite you
 
