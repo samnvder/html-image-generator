@@ -1,10 +1,11 @@
 {
-  "note": "Fonts shipped with this project. All SIL Open Font License 1.1 — free to embed in PDFs and redistribute. Templates declare @font-face in templates/base.css; a job spec's `fonts` array is informational. Re-download with `node scripts/fetch-fonts.js`.",
+  "note": "Fonts shipped with this project. All SIL Open Font License 1.1 — free to embed in PDFs and redistribute, provided the license text travels with them. Full texts are in fonts/licenses/, one per family; keep them alongside the font files in any redistribution. Templates declare @font-face in templates/base.css; a job spec's `fonts` array is informational. Re-download fonts and licenses with `node scripts/fetch-fonts.js`.",
   "families": [
     {
       "family": "Inter",
       "role": "sans",
       "license": "OFL-1.1",
+      "licenseFile": "licenses/Inter-OFL.txt",
       "source": "https://fonts.google.com/specimen/Inter",
       "faces": [
         { "file": "inter-400.woff2", "format": "woff2", "weight": 400, "style": "normal" },
@@ -15,6 +16,7 @@
       "family": "Source Serif 4",
       "role": "serif",
       "license": "OFL-1.1",
+      "licenseFile": "licenses/SourceSerif4-OFL.txt",
       "source": "https://fonts.google.com/specimen/Source+Serif+4",
       "faces": [
         { "file": "source-serif-400.woff2", "format": "woff2", "weight": 400, "style": "normal" },
@@ -25,6 +27,7 @@
       "family": "Playfair Display",
       "role": "display",
       "license": "OFL-1.1",
+      "licenseFile": "licenses/PlayfairDisplay-OFL.txt",
       "source": "https://fonts.google.com/specimen/Playfair+Display",
       "faces": [
         { "file": "playfair-display-700.woff2", "format": "woff2", "weight": 700, "style": "normal" }
@@ -34,6 +37,7 @@
       "family": "Open Sans",
       "role": "test",
       "license": "OFL-1.1",
+      "licenseFile": "licenses/OpenSans-OFL.txt",
       "source": "https://github.com/googlefonts/opensans",
       "note": "Static TTF, present to prove the TTF @font-face path embeds identically to WOFF2 (see scripts/fonttest.js).",
       "faces": [

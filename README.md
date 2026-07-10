@@ -67,7 +67,9 @@ Slugification doubles as a security boundary: project names are free text that b
 | `certificate-letter.html` | Letter, **landscape** | Bordered layout, single merge field, `variants` batch render |
 | `legal-form.html` | **Legal**, portrait | Flowing multi-page text, native running header + `counter(page)` |
 
-All link `templates/base.css`, which carries the `@font-face` declarations, design tokens, and the `.sheet` box. Four OFL-licensed families ship in `fonts/` (see `fonts/manifest.json`); re-fetch with `node scripts/fetch-fonts.js`.
+All link `templates/base.css`, which carries the `@font-face` declarations, design tokens, and the `.sheet` box. Four OFL-1.1 families ship in `fonts/` (see `fonts/manifest.json`); re-fetch fonts and their licenses with `node scripts/fetch-fonts.js`.
+
+> **Font licensing.** Inter, Source Serif 4, Playfair Display, and Open Sans are all SIL Open Font License 1.1 — free to embed in PDFs and to redistribute, *provided the license text travels with the fonts.* The full texts live in `fonts/licenses/`, one per family. If you vendor these fonts elsewhere, take that folder with them.
 
 **Image slots** are the deliberate boundary: the layout declares art zones (`{{image:background}}`), and photos or diffusion output fill them. The deterministic layer owns every glyph and every dimension.
 

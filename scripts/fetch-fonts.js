@@ -44,11 +44,27 @@ const TTF = [
   ['https://raw.githubusercontent.com/googlefonts/opensans/main/fonts/ttf/OpenSans-Regular.ttf', 'open-sans-400.ttf'],
 ];
 
-await fs.mkdir(FONT_DIR, { recursive: true });
+// The SIL Open Font License requires its text to accompany the fonts wherever they
+// are redistributed. Shipping the .woff2/.ttf without these files is a violation.
+const LICENSES = [
+  ['https://raw.githubusercontent.com/google/fonts/main/ofl/inter/OFL.txt', 'Inter-OFL.txt'],
+  ['https://raw.githubusercontent.com/google/fonts/main/ofl/sourceserif4/OFL.txt', 'SourceSerif4-OFL.txt'],
+  ['https://raw.githubusercontent.com/google/fonts/main/ofl/playfairdisplay/OFL.txt', 'PlayfairDisplay-OFL.txt'],
+  ['https://raw.githubusercontent.com/google/fonts/main/ofl/opensans/OFL.txt', 'OpenSans-OFL.txt'],
+];
+
+const LICENSE_DIR = path.join(FONT_DIR, 'licenses');
+await fs.mkdir(LICENSE_DIR, { recursive: true });
+
 console.log('fonts/');
 for (const [family, weight, file] of WOFF2) {
   await download(await latinWoff2(family, weight), path.join(FONT_DIR, file));
 }
 for (const [url, file] of TTF) {
   await download(url, path.join(FONT_DIR, file));
+}
+
+console.log('fonts/licenses/');
+for (const [url, file] of LICENSES) {
+  await download(url, path.join(LICENSE_DIR, file));
 }
