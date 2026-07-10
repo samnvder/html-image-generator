@@ -27,17 +27,17 @@ A **deterministic image generator for print**. Instead of a diffusion model gues
 | [README.md](README.md) | Entry point for humans and agents | **Live** |
 | `HANDOFF.md` | This file | — |
 
-**Phases 0–3 are built and green (2026-07-09). The product exists.** `npm start` (or double-clicking `Start.cmd`) boots a server in ~1s, picks a free port, and opens the browser on a live true-size preview. `npm test` runs four suites, all passing:
+**Phases 0–3, 6 and 7 are built and green. The product exists.** `npm start` (or double-clicking `Start.cmd`) boots a server in ~1s, picks a free port, and opens the browser on a live true-size preview. `npm test` runs five suites, all passing, and **CI runs them on every push** (`.github/workflows/test.yml`, ubuntu-latest, Node 22):
 
-- `selftest.js` — **24/24.** Letter PDF exactly 612×792 pt, Legal 612×1008 pt, Letter PNG @300 exactly 2550×3300 px reading back `density: 300`. Path-traversal and Windows-reserved-name rejection. Both build-time probes.
-- `templatetest.js` — **30/30.** All three reference templates: correct page box, expected page count, no unfilled `{{placeholders}}` surviving into the PDF, every declared font embedded, no silent fallback to Arial.
-- `fonttest.js` — WOFF2 and TTF both embed and subset.
-- `apptest.js` — **62/62.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, the gallery renders one real thumbnail per template, template config drives the form, invalid fields block Render with inline messages, dark mode switches, and a UI render matches a CLI render.
-- `validatetest.js` — **77/77.** Pluralize idempotency (the `posterses` regression), CSS-length parsing, and 24 malformed-spec cases each rejected on the right field.
+- `validatetest.js` — **100.** Pluralize idempotency (the `posterses` regression), CSS-length parsing, 24 malformed-spec cases each rejected on the right field, `isInside()` containment including the sibling-prefix trap, the `pdfOnly` rule, and every shipped job file walked through both the runtime validator and the published schema.
+- `selftest.js` — **36.** Letter PDF exactly 612×792 pt, Legal 612×1008 pt, Letter PNG @300 exactly 2550×3300 px reading back `density: 300`. Path-traversal and Windows-reserved-name rejection. Both build-time probes. A1 (bleed PNG is a trim render), A2 (content is text), A4 (variants don't overwrite), A7 (nothing lands in the user's `outputs/`).
+- `templatetest.js` — **67.** All three reference templates: correct page box, expected page count, no unfilled `{{placeholders}}` surviving into the PDF, every declared font embedded, no silent fallback to Arial, PDF metadata stamped, tagging preserved, no object streams.
+- `fonttest.js` — WOFF2 and TTF both embed and subset. *(A probe/report script — it prints a verdict and exits non-zero on failure, but has no assertion counter, so it contributes 0 to the total.)*
+- `apptest.js` — **94.** Spawns the real server, drives the real UI with a real browser: cold start under budget, the guard blocks render until paper size is chosen, preview measures 816×1056 (Letter) / 816×1344 (Legal) CSS px, the legal form flows to 2 pages with a running header and page counter, editing a template on disk hot-reloads the preview, the gallery renders one real thumbnail per template, template config drives the form, invalid fields block Render with inline messages, dark mode switches, a UI render matches a CLI render, a slugified job name saves, the picker only offers loadable jobs, a SIGKILLed Chromium heals, placeholder warnings reach the drawer, a UI render persists its spec, and image slots offer real assets.
 
-**212 assertions total.**
+**297 assertions total.**
 
-**Next action is Phase 4** (gated CMYK via Ghostscript) or Phase 5 (print and measure). Both are optional; the MVP is done.
+**Next action is Phase 4** (gated CMYK via Ghostscript) or Phase 5 (print and measure). Both are optional; the MVP is done and the audit is fully remediated.
 
 ### What the build proved (research questions closed)
 
@@ -111,7 +111,15 @@ Two fixes came from *looking* at the app rather than testing it:
 - **The background-tab guard was wrong.** It gated on `document.hidden`, but some environments report a visible tab as hidden — the preview then never rendered at all. It now always starts the render, arms a 4s watchdog to detect a stall, and re-runs on `visibilitychange`. Gate on the symptom, not the proxy.
 - **Preview chrome hardcoded a grey backdrop** that clashed with dark mode, and left a scrollbar sliver. Now transparent with the scrollbar hidden. Fit-page fits *one page*, not the whole document.
 
-**Next: Phase 7 — audit remediation.** A full audit (2026-07-10, [AUDIT.md](AUDIT.md)) found 11 real defects — including two premise bugs: PNG output is corrupted on bleed jobs, and job content is parsed as raw HTML — plus 6 missing features. The executable fix plan with per-item exit tests is [BUILD_PLAN.md → Phase 7](BUILD_PLAN.md): 7A output correctness → 7B data-loss → 7C test isolation + CI → 7D hardening → 7E reproducibility & polish. Phases 4 (gated CMYK) and 5 (print and measure) remain open behind it.
+**Phase 7 is DONE (2026-07-10)** — audit remediation. All 11 defects and all 6 gaps in [AUDIT.md](AUDIT.md) are closed, in five sub-phases, each ending with a cold `npm test` and a push.
+
+- **7A — the two premise bugs.** A bleed job's PNG captured the Paged.js-restructured DOM (content shifted by the bleed offset, sheet edge showing); it now composes a *second, non-paged* document for the PNG, while the PDF keeps its bleed. And `{{placeholder}}` injected values as raw HTML — they are now escaped, with `{{{key}}}` as the explicit opt-in for markup.
+- **7B — data loss.** Saving a job named `menu: spring` wrote an illegal NTFS filename and 500'd. Variants that overrode only `content` silently overwrote each other (now numbered `--v2`, `--v3`). `jobs/example.json` pointed at a hidden fixture template and broke the form; it's gone, and the picker only offers jobs it can load.
+- **7C — test isolation, then CI.** The suites rendered into the user's `outputs/`. The outputs root is now resolved at call time from `HIG_OUTPUTS_ROOT`; the API speaks `outputs/…` URL paths that are a namespace over wherever it lives. Then GitHub Actions, which is only meaningful once the tests don't dirty the tree.
+- **7D — hardening.** `startsWith` containment → `isInside()`; `pdfOnly` enforced in the validator instead of being a UI hint; a crashed Chromium relaunches instead of bricking the server; unfilled-placeholder warnings travel back to the caller; the published schema stopped rejecting its own examples.
+- **7E — reproducibility & polish.** Every UI render persists its spec (the Guard's promise, now enforced from both sides). PDF Author/Subject/Creator via `pdf-lib`. Image-slot picker with live previews. Favicon. All five dependency majors upgraded, none needed pinning back.
+
+Phases 4 (gated CMYK) and 5 (print and measure) remain open.
 
 ---
 
@@ -157,3 +165,17 @@ Data merge (CSV → N certificates), n-up imposition / label sheets (Avery), A4 
 - Don't gate UI behaviour on `document.hidden` — some environments (including this repo's own browser automation) report a visible tab as hidden. Detect the actual stall.
 - On Windows, Ghostscript's binary is **`gswin64c.exe`**, not `gs` — the unmaintained `press-ready` CLI trips on exactly this.
 - `press-ready` is **reference material only** (last release Aug 2020, hardcoded to Japan Color 2001 Coated). Mine its Ghostscript flags from `src/ghostScript.ts`; do not depend on it.
+
+### Earned in Phase 7
+
+- **A bleed job is two documents, not one.** The PDF gets the Paged.js composition; the PNG must be composed again with `{ screen: true }`. Screenshotting the paged DOM is exactly the A1 bug. `composeDocument()` takes the flag; `renderJob()` calls it twice when a paged job also wants PNG.
+- **`pdf-lib`'s `save()` defaults to `useObjectStreams: true`.** That would compress the font descriptors into an `/ObjStm` — and the whole reason `pdfinfo.js` can inspect fonts by regex is that Chromium writes none. Always `save({ useObjectStreams: false })`. `templatetest` asserts `objStreams === 0`.
+- **`pdf-lib` writes `/Author` as a UTF-16BE hex string** (`/Author <FEFF0053…>`), not `/Author (South End)`. A literal-string regex will report a false failure. Read the Info dict through pdf.js (`pdfInfo().info`), which decodes both.
+- **The delta bound on a PNG comparison is not the discriminating one; the ratio is.** Cross-process Chromium antialiasing can differ by 5/255 on a few hundred of 25M subpixels. A structural bug (A1) moves ~1% of subpixels. Bound the *ratio* tightly (0.01%) and leave the per-subpixel delta loose. Same-process comparisons can keep `delta <= 2`.
+- **`renderJob()` returns `{ outputs, warnings }`, not an array.** Every caller destructures. Warnings carry unfilled placeholders back to the CLI (stderr), the API, and the UI drawer.
+- **The API speaks `outputs/…` URL paths, not project-relative ones.** The outputs root is `HIG_OUTPUTS_ROOT` or `<project>/outputs`, resolved *at call time* — it can live outside the project entirely (the test suites put it in a temp dir), so `path.relative(PROJECT_ROOT, …)` is wrong. Use `toOutputsUrlPath()` / `fromOutputsUrlPath()`.
+- **`getOutputsRoot()` must never be captured at import time.** The suites set the env var *after* `paths.js` has already been imported (ESM imports hoist). Anything that caches the root at module scope silently ignores the override — the server reads it once at boot on purpose, since its env is fixed by then.
+- **Every UI render writes a job file** (B1), so `jobs/` grows during a test run. `apptest` snapshots the directory up front and deletes whatever is new. For the same reason, `thumbs.js` prefers `*-example.json` when choosing a template's showcase job — otherwise a job saved as `aaa.json` would quietly become the poster's gallery thumbnail.
+- **A `_`-prefixed template is a fixture, invisible to the gallery.** A job spec pointing at one is therefore unloadable in the UI, which is why `/api/jobs` filters by "template is in the gallery" and not merely by filename.
+- **Chromium's sandbox needs unprivileged user namespaces, which Ubuntu 24.04 blocks by AppArmor.** CI relaxes `kernel.apparmor_restrict_unprivileged_userns` rather than threading `--no-sandbox` through five `puppeteer.launch()` sites.
+- **A9's retry branch is belt, not braces.** `getBrowser()` notices `browser.connected === false` and relaunches *before* `renderJob()` runs, so the crash test exercises the lazy relaunch, not the one-shot retry. A browser that dies *mid-render* is what the retry catches, and nothing tests that path.

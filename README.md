@@ -29,9 +29,12 @@ node scripts/render.js jobs/poster-example.json
 The PDF opens in your default viewer and lands in `outputs/south-end/posters/`.
 
 ```bash
-npm test       # 4 suites: exact page boxes, exact pixel counts, path security,
-               # font embedding, all templates, and the app end-to-end
+npm test       # 297 assertions across 5 suites: exact page boxes, exact pixel counts,
+               # path security, font embedding, PDF metadata, all templates, and the
+               # app driven end-to-end in a real browser. Runs in CI on every push.
 ```
+
+The suites render into a temp directory, never into your `outputs/`. Set `HIG_OUTPUTS_ROOT` to point the outputs root anywhere you like.
 
 ## For an LLM agent working in this repo
 
@@ -72,6 +75,8 @@ All link `templates/base.css`, which carries the `@font-face` declarations, desi
 > **Font licensing.** Inter, Source Serif 4, Playfair Display, and Open Sans are all SIL Open Font License 1.1 — free to embed in PDFs and to redistribute, *provided the license text travels with the fonts.* The full texts live in `fonts/licenses/`, one per family. If you vendor these fonts elsewhere, take that folder with them.
 
 **Image slots** are the deliberate boundary: the layout declares art zones (`{{image:background}}`), and photos or diffusion output fill them. The deterministic layer owns every glyph and every dimension.
+
+Content is **text, not markup**: `{{key}}` HTML-escapes its value, so `use <Enter> to submit` prints as those exact characters. A template that genuinely wants markup from a value asks for it with `{{{key}}}`.
 
 ## How it renders
 
