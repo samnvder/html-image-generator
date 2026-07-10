@@ -396,7 +396,14 @@ renderBtn.addEventListener('click', async () => {
     result.innerHTML = `<div class="err">${body.error}</div>`;
   } else {
     result.innerHTML = '';
-    for (const r of body) result.appendChild(fileRow(r));
+    // A document shipped with holes in it used to say so only in the server's console.
+    for (const w of body.warnings ?? []) {
+      const note = document.createElement('div');
+      note.className = 'warn';
+      note.textContent = w;
+      result.appendChild(note);
+    }
+    for (const r of body.outputs) result.appendChild(fileRow(r));
     refreshProjects();
     refreshOutputs();
   }

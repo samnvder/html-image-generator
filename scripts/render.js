@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer';
 import sharp from 'sharp';
 import {
-  PAPER_SIZES, PROJECT_ROOT, outputKey, resolveOutputPath, writeLatest,
+  PAPER_SIZES, PROJECT_ROOT, isInside, outputKey, resolveOutputPath, writeLatest,
 } from './paths.js';
 import { assertValidSpec } from './validate.js';
 
@@ -109,9 +109,6 @@ export async function composeDocument(spec, opts = {}) {
   const values = { ...spec.content };
   for (const [slot, src] of Object.entries(spec.imageSlots)) values[`image:${slot}`] = src;
   let { html, unfilled } = substitutePlaceholders(source, values);
-  if (unfilled.length) {
-    console.warn(`[render] unfilled placeholders left in document: ${unfilled.join(', ')}`);
-  }
 
   const dims = pageDims(spec);
   const paged = opts.preview || (!opts.screen && needsPagedJs(spec));
@@ -173,7 +170,7 @@ function serveDocument(html) {
       }
       const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
       const abs = path.resolve(PROJECT_ROOT, rel);
-      if (!abs.startsWith(PROJECT_ROOT)) {
+      if (!isInside(PROJECT_ROOT, abs)) {
         res.writeHead(403).end();
         return;
       }
@@ -251,12 +248,24 @@ async function withDocument(html, fn) {
   }
 }
 
+// Returns { outputs: [{format, path}], warnings: [string] }.
+//
+// Unfilled {{placeholders}} used to log to the *server's* console and nowhere else:
+// the UI user and the API caller shipped a document with holes in it and were never
+// told. Warnings now travel back to whoever asked for the render.
 export async function renderJob(rawSpec, opts = {}) {
   const spec = applyDefaults(rawSpec);
   const when = opts.when ?? new Date();
   const ownBrowser = !opts.browser;
   const browser = opts.browser ?? await puppeteer.launch();
   const results = [];
+  const warnings = new Set();
+
+  const noteUnfilled = (run, unfilled) => {
+    if (!unfilled.length) return;
+    // Both compositions of one run report the same holes; a Set collapses them.
+    warnings.add(`${run.name}: unfilled placeholder${unfilled.length > 1 ? 's' : ''} ${unfilled.join(', ')}`);
+  };
 
   try {
     // A variant's overrides can be just as wrong as a base spec's. Validate each.
@@ -278,7 +287,8 @@ export async function renderJob(rawSpec, opts = {}) {
       // The two outputs are two different documents whenever the job asks for bleed
       // or crop marks: the PDF gets the Paged.js composition, the PNG never does.
       if (run.outputs.includes('pdf')) {
-        const { html, paged } = await composeDocument(run);
+        const { html, paged, unfilled } = await composeDocument(run);
+        noteUnfilled(run, unfilled);
         const pdf = await withDocument(html, async (url) => {
           const page = await browser.newPage();
           try { return await renderPdf(page, url, paged); } finally { await page.close(); }
@@ -291,7 +301,8 @@ export async function renderJob(rawSpec, opts = {}) {
       if (run.outputs.includes('png')) {
         // Screen render — no polyfill, no @page. Templates size themselves with
         // --page-width/--page-height/--page-margin.
-        const { html } = await composeDocument(run, { screen: true });
+        const { html, unfilled } = await composeDocument(run, { screen: true });
+        noteUnfilled(run, unfilled);
         const png = await withDocument(html, async (url) => {
           const page = await browser.newPage();
           try { return await renderPng(page, url, run); } finally { await page.close(); }
@@ -313,7 +324,7 @@ export async function renderJob(rawSpec, opts = {}) {
     const { default: open } = await import('open');
     await open(primary.path);
   }
-  return results;
+  return { outputs: results, warnings: [...warnings] };
 }
 
 async function main() {
@@ -325,8 +336,9 @@ async function main() {
     process.exit(1);
   }
   const spec = JSON.parse(await fs.readFile(path.resolve(specPath), 'utf8'));
-  const results = await renderJob(spec, { autoOpen: !noOpen });
-  for (const r of results) console.log(`${r.format.toUpperCase()}  ${path.relative(process.cwd(), r.path)}`);
+  const { outputs, warnings } = await renderJob(spec, { autoOpen: !noOpen });
+  for (const w of warnings) console.error(`[warning] ${w}`);
+  for (const r of outputs) console.log(`${r.format.toUpperCase()}  ${path.relative(process.cwd(), r.path)}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -4,9 +4,26 @@
 // Returns [] when valid, else [{ field, message }] — field-level so the UI can put
 // the error under the input that caused it.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { PAPER_SIZES, PROJECT_ROOT, slugify } from './paths.js';
+import { PAPER_SIZES, PROJECT_ROOT, isInside, slugify } from './paths.js';
+import { parseTemplateConfig } from './templates.js';
+
+// A template's declared config, re-read only when the file changes on disk. The
+// validator is synchronous and runs on every keystroke via /api/validate.
+const configCache = new Map();
+function templateConfigFor(abs) {
+  try {
+    const { mtimeMs } = statSync(abs);
+    const hit = configCache.get(abs);
+    if (hit?.mtimeMs === mtimeMs) return hit.config;
+    const config = parseTemplateConfig(readFileSync(abs, 'utf8'), path.basename(abs)) ?? {};
+    configCache.set(abs, { mtimeMs, config });
+    return config;
+  } catch {
+    return {};   // an unreadable or malformed config must not block validation
+  }
+}
 
 const ALLOWED = new Set([
   '$schema', 'name', 'project', 'docType', 'paperSize', 'orientation', 'outputs',
@@ -96,8 +113,14 @@ export function validateSpec(rawSpec) {
     // Must resolve inside templates/ — the name comes from user input.
     const dir = path.join(PROJECT_ROOT, 'templates');
     const abs = path.resolve(dir, spec.template);
-    if (!abs.startsWith(dir)) bad('template', `template "${spec.template}" escapes templates/`);
+    if (!isInside(dir, abs)) bad('template', `template "${spec.template}" escapes templates/`);
     else if (!existsSync(abs)) bad('template', `template "${spec.template}" does not exist in templates/`);
+    else if (templateConfigFor(abs).pdfOnly && Array.isArray(spec.outputs) && spec.outputs.includes('png')) {
+      // A flowing multi-page template has no meaningful screenshot: a PNG would be a
+      // viewport shot of page 1, presented as if it were the document. The UI already
+      // disabled the checkbox; the CLI happily rendered it.
+      bad('outputs', `template "${spec.template}" is pdfOnly (it flows across pages) — a PNG would capture only page 1. Remove "png" from outputs.`);
+    }
   }
 
   if (spec.content !== undefined) {
@@ -118,7 +141,7 @@ export function validateSpec(rawSpec) {
         if (typeof src !== 'string' || src === '') { bad(`imageSlots.${slot}`, `imageSlots.${slot} must be a non-empty path`); continue; }
         if (/^(https?:)?\/\//.test(src)) continue;   // remote images are the caller's problem
         const abs = path.resolve(PROJECT_ROOT, src.replace(/^\/+/, ''));
-        if (!abs.startsWith(PROJECT_ROOT)) bad(`imageSlots.${slot}`, `imageSlots.${slot} escapes the project directory`);
+        if (!isInside(PROJECT_ROOT, abs)) bad(`imageSlots.${slot}`, `imageSlots.${slot} escapes the project directory`);
         else if (!existsSync(abs)) bad(`imageSlots.${slot}`, `image "${src}" does not exist`);
       }
     }

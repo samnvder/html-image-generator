@@ -474,3 +474,16 @@ button.ghost:hover { background: var(--panel-2); filter: none; }
 .file a:hover { text-decoration: underline; }
 .file .when { margin-left: auto; flex: none; color: var(--faint); font-size: 11px; white-space: nowrap; }
 .file .err, .panel .err { color: var(--bad); font-family: ui-monospace, monospace; white-space: pre-wrap; }
+
+/* A render that succeeded but left holes in the document. Not an error — the file
+   exists — but the user must not find out by looking at the print. */
+.panel .warn {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--r);
+  background: var(--warn-bg);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}

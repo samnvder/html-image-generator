@@ -35,7 +35,7 @@ await fs.writeFile(TEMPLATE, `<!doctype html>
 const browser = await puppeteer.launch();
 let out;
 try {
-  out = await renderJob({
+  ({ outputs: out } = await renderJob({
     name: 'fonttest',
     project: 'Demo',
     docType: 'probe',
@@ -43,7 +43,7 @@ try {
     margin: '0.5in',
     template: '_fonttest.html',
     outputs: ['pdf'],
-  }, { browser, autoOpen: false });
+  }, { browser, autoOpen: false }));
 } finally {
   await browser.close();
   await fs.rm(TEMPLATE, { force: true });

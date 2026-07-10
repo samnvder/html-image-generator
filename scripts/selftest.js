@@ -56,7 +56,7 @@ try {
   };
 
   // Letter PDF + PNG (also the routing test: South End/flyer -> south-end/flyers)
-  const letterOut = await renderJob({ ...base, outputs: ['pdf', 'png'] }, { browser, autoOpen: false });
+  const { outputs: letterOut } = await renderJob({ ...base, outputs: ['pdf', 'png'] }, { browser, autoOpen: false });
   const letterPdf = letterOut.find((r) => r.format === 'pdf').path;
   const letterPng = letterOut.find((r) => r.format === 'png').path;
 
@@ -82,7 +82,7 @@ try {
   check('Probe A: no truncation at DSF 3.125 (bottom-right marker present)', brMean < 100, `corner mean ${brMean.toFixed(1)} (want <100 = dark)`);
 
   // Legal PDF
-  const legalOut = await renderJob({
+  const { outputs: legalOut } = await renderJob({
     ...base, name: 'selftest-legal', paperSize: 'legal', content: { title: 'Selftest — Legal', note: 'exit test' },
   }, { browser, autoOpen: false });
   const gp = await pdfInfo(legalOut[0].path);
@@ -90,7 +90,7 @@ try {
   check('Legal PDF is 1 page', gp.pages === 1, `${gp.pages} pages`);
 
   // Probe B — native @page margin boxes (no Paged.js)
-  const probeOut = await renderJob({
+  const { outputs: probeOut } = await renderJob({
     name: 'probe-marginboxes', project: 'Demo', docType: 'probe',
     paperSize: 'letter', margin: '0.75in', template: '_probe-marginboxes.html',
   }, { browser, autoOpen: false });
@@ -105,14 +105,14 @@ try {
   // Before the fix, the PNG captured the polyfill-restructured DOM: content shifted
   // by the bleed offset, corner markers pulled inward, sheet edge visible.
   const bleedContent = { title: 'Selftest — Bleed', note: 'Paged.js path' };
-  const bleedOut = await renderJob({
+  const { outputs: bleedOut } = await renderJob({
     ...base, name: 'selftest-bleed', bleed: '0.125in', cropMarks: true,
     outputs: ['pdf', 'png'], content: bleedContent,
   }, { browser, autoOpen: false });
   const bp = await pdfInfo(bleedOut.find((r) => r.format === 'pdf').path);
   check('Paged.js path: bleed/marks sheet larger than trim', bp.width > 612 && bp.height > 792, `${bp.width}x${bp.height}`);
 
-  const controlOut = await renderJob({
+  const { outputs: controlOut } = await renderJob({
     ...base, name: 'selftest-bleed-control', outputs: ['png'], content: bleedContent,
   }, { browser, autoOpen: false });
 
@@ -142,7 +142,7 @@ try {
     `${differing} subpixels differ (${(ratio * 100).toFixed(5)}%), max delta ${maxDelta}`);
 
   // A2 — content is text, not markup. {{key}} escapes; {{{key}}} is the explicit opt-in.
-  const escapeOut = await renderJob({
+  const { outputs: escapeOut } = await renderJob({
     name: 'selftest-escape', project: 'Demo', docType: 'probe',
     paperSize: 'letter', margin: '0', template: '_escape.html',
     content: {
@@ -159,7 +159,7 @@ try {
 
   // A4 — every run of a job shares one timestamp, so a variant that overrides only
   // `content` used to resolve to the base run's exact path and overwrite it silently.
-  const variantOut = await renderJob({
+  const { outputs: variantOut } = await renderJob({
     ...base, name: 'selftest-variants', outputs: ['pdf'],
     content: { title: 'Variant 1', note: 'base run' },
     variants: [
@@ -177,7 +177,7 @@ try {
   check('A4: every variant file survived (none overwritten)', survived.every(Boolean), JSON.stringify(survived));
 
   // A variant that renames itself keeps its own name — no suffix, no collision.
-  const namedOut = await renderJob({
+  const { outputs: namedOut } = await renderJob({
     ...base, name: 'selftest-named-base', outputs: ['pdf'],
     content: { title: 'Base', note: 'x' },
     variants: [{ name: 'selftest-named-alt', content: { title: 'Alt', note: 'y' } }],

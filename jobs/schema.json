@@ -7,9 +7,13 @@
   "required": ["name", "project", "docType", "paperSize", "template"],
   "additionalProperties": false,
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Points an editor at this file for completion and validation. Every shipped job carries it, so the schema must permit it: additionalProperties is false. The runtime validator allows it and strips it before rendering."
+    },
     "name": {
       "type": "string",
-      "description": "Short job name, becomes the output filename slug. e.g. 'spring-menu-launch'"
+      "description": "Short job name, becomes the output filename slug. e.g. 'spring-menu-launch'. Slugified before it becomes a filename."
     },
     "project": {
       "type": "string",

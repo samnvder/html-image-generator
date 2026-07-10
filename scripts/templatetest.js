@@ -65,7 +65,7 @@ try {
   for (const c of CASES) {
     const spec = JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', c.spec), 'utf8'));
     console.log(`— ${c.spec} (${spec.template}) —`);
-    const outs = await renderJob(spec, { browser, autoOpen: false });
+    const { outputs: outs } = await renderJob(spec, { browser, autoOpen: false });
     const pdf = outs.find((r) => r.format === 'pdf').path;
     const info = await pdfInfo(pdf);
 

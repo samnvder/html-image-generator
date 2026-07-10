@@ -42,7 +42,9 @@ function thumbSpec(template, example) {
     margin: base.margin ?? c.margin ?? '0.5in',
     content: base.content ?? {},
     imageSlots: base.imageSlots ?? {},
-    outputs: ['png'],
+    // No `outputs`: renderPngBuffer never reads it, and claiming ["png"] would trip
+    // the validator's pdfOnly rule on legal-form. A thumbnail is a page-1 preview of
+    // the template, not a deliverable the spec is asking for.
   };
 }
 

@@ -3,7 +3,9 @@
 //
 //   node scripts/validatetest.js
 
-import { pluralizeDocType, outputDirFor } from './paths.js';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { pluralizeDocType, outputDirFor, isInside, PROJECT_ROOT } from './paths.js';
 import { validateSpec, isCssLength } from './validate.js';
 import { applyDefaults } from './render.js';
 
@@ -102,6 +104,59 @@ check('a typo\'d key throws instead of silently defaulting', typoThrew);
 const defaulted = applyDefaults(base);
 check('applyDefaults still fills defaults', defaulted.dpi === 300 && defaulted.orientation === 'portrait' && defaulted.margin === '0.5in');
 check('applyDefaults strips $schema', applyDefaults({ ...base, $schema: 'x' }).$schema === undefined);
+
+console.log('— A6: path containment, not string prefixes —');
+// The trap: `"C:\x\outputsX".startsWith("C:\x\outputs")` is true. A sibling directory
+// must not be treated as living inside its neighbour.
+const sep = path.sep;
+const A6 = [
+  ['a dir contains itself', ['/x/outputs', '/x/outputs'], true],
+  ['a child is inside', ['/x/outputs', '/x/outputs/south-end/a.pdf'], true],
+  ['a nested child is inside', ['/x/outputs', '/x/outputs/a/b/c/d.png'], true],
+  ['the sibling-prefix trap', ['/x/outputs', '/x/outputsX'], false],
+  ['a sibling-prefix child', ['/x/outputs', '/x/outputsX/leak.pdf'], false],
+  ['the parent is not inside the child', ['/x/outputs', '/x'], false],
+  ['traversal escapes', ['/x/outputs', '/x/outputs/../../etc/passwd'], false],
+  ['traversal that lands back inside is fine', ['/x/outputs', '/x/outputs/a/../b.pdf'], true],
+  ['an unrelated tree is outside', ['/x/outputs', '/y/outputs/a.pdf'], false],
+];
+for (const [name, [parent, child], want] of A6) {
+  const got = isInside(path.resolve(parent.replaceAll('/', sep)), path.resolve(child.replaceAll('/', sep)));
+  check(`isInside: ${name}`, got === want, `got ${got}, wanted ${want}`);
+}
+
+console.log('— A8: pdfOnly templates refuse a PNG —');
+// legal-form flows across pages; a PNG would be a viewport shot of page 1 presented
+// as if it were the document. The UI disabled the checkbox; the CLI never checked.
+const legal = { ...base, paperSize: 'legal', template: 'legal-form.html' };
+check('legal-form + ["png"] is rejected on the outputs field',
+  validateSpec({ ...legal, outputs: ['png'] }).some((e) => e.field === 'outputs'),
+  JSON.stringify(validateSpec({ ...legal, outputs: ['png'] })));
+check('legal-form + ["pdf","png"] is rejected too',
+  validateSpec({ ...legal, outputs: ['pdf', 'png'] }).some((e) => e.field === 'outputs'));
+check('legal-form + ["pdf"] passes', validateSpec({ ...legal, outputs: ['pdf'] }).length === 0,
+  JSON.stringify(validateSpec({ ...legal, outputs: ['pdf'] })));
+check('legal-form with no outputs key passes (defaults to pdf)', validateSpec(legal).length === 0);
+check('a non-pdfOnly template still accepts png',
+  validateSpec({ ...base, outputs: ['pdf', 'png'] }).length === 0);
+
+console.log('— A11: the shipped schema accepts the shipped jobs —');
+const JOBS = path.join(PROJECT_ROOT, 'jobs');
+const schema = JSON.parse(await fs.readFile(path.join(JOBS, 'schema.json'), 'utf8'));
+check('schema.json declares a $schema property (its own examples all carry one)',
+  schema.properties.$schema?.type === 'string');
+check('schema.json still forbids unknown keys', schema.additionalProperties === false);
+
+const jobFiles = (await fs.readdir(JOBS)).filter((f) => f.endsWith('.json') && f !== 'schema.json');
+check('there are shipped example jobs to check', jobFiles.length > 0, `${jobFiles.length}`);
+for (const f of jobFiles) {
+  const spec = JSON.parse(await fs.readFile(path.join(JOBS, f), 'utf8'));
+  const errors = validateSpec(spec);
+  check(`${f} passes the runtime validator`, errors.length === 0, JSON.stringify(errors));
+  // The published schema and the runtime validator must not contradict each other.
+  const unknown = Object.keys(spec).filter((k) => !(k in schema.properties));
+  check(`${f} uses only keys the published schema declares`, unknown.length === 0, unknown.join(', '));
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

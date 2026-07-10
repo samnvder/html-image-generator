@@ -32,7 +32,9 @@ function check(name, cond, detail = '') {
 const t0 = Date.now();
 const server = spawn(process.execPath, [path.join(PROJECT_ROOT, 'server', 'index.js'), '--no-open'], {
   cwd: PROJECT_ROOT, stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, HIG_OUTPUTS_ROOT: OUTPUTS_ROOT },
+  // HIG_TEST=1 exposes POST /api/_test/crash-browser, which exists only so this suite
+  // can prove the server survives a dead Chromium.
+  env: { ...process.env, HIG_OUTPUTS_ROOT: OUTPUTS_ROOT, HIG_TEST: '1' },
 });
 
 const base = await new Promise((resolve, reject) => {
@@ -453,11 +455,11 @@ try {
     });
     return r.json();
   }, uiSpec);
-  const cliRes = await renderJob({ ...spec, name: 'apptest-cli' }, { autoOpen: false });
+  const { outputs: cliRes } = await renderJob({ ...spec, name: 'apptest-cli' }, { autoOpen: false });
 
   // The API speaks `outputs/…` URL paths; they resolve against the outputs root,
   // which under test is a temp dir outside the project.
-  const uiPng = fromOutputsUrlPath(uiRes.find((r) => r.format === 'png').path);
+  const uiPng = fromOutputsUrlPath(uiRes.outputs.find((r) => r.format === 'png').path);
   const cliPng = cliRes.find((r) => r.format === 'png').path;
 
   const [uiMeta, cliMeta] = await Promise.all([sharp(uiPng).metadata(), sharp(cliPng).metadata()]);
@@ -486,7 +488,9 @@ try {
   check('UI and CLI PNGs are visually identical (<0.01% of subpixels, delta <= 8)',
     ratio < 0.0001 && maxDelta <= 8, `${differing} bytes differ (${(ratio * 100).toFixed(5)}%), max delta ${maxDelta}`);
 
-  const uiPdf = fromOutputsUrlPath(uiRes.find((r) => r.format === 'pdf').path);
+  check('a clean render reports no warnings', uiRes.warnings.length === 0, JSON.stringify(uiRes.warnings));
+
+  const uiPdf = fromOutputsUrlPath(uiRes.outputs.find((r) => r.format === 'pdf').path);
   const cliPdf = cliRes.find((r) => r.format === 'pdf').path;
   const [uiInfo, cliInfo] = await Promise.all([pdfInfo(uiPdf), pdfInfo(cliPdf)]);
   check('UI and CLI PDFs have the same page box', uiInfo.width === cliInfo.width && uiInfo.height === cliInfo.height,
@@ -496,7 +500,7 @@ try {
     inspectFonts(await fs.readFile(uiPdf)).fonts.join() === inspectFonts(await fs.readFile(cliPdf)).fonts.join());
 
   check('UI render lands in the routed folder',
-    uiRes.find((r) => r.format === 'png').path.startsWith('outputs/south-end/posters/'), uiPng);
+    uiRes.outputs.find((r) => r.format === 'png').path.startsWith('outputs/south-end/posters/'), uiPng);
 
   console.log('— A7: the suite renders into a temp outputs root —');
   check('the server honoured HIG_OUTPUTS_ROOT', isInside(OUTPUTS_ROOT, uiPng), uiPng);
@@ -507,6 +511,56 @@ try {
   const panel = await page.evaluate(() => fetch('/api/outputs').then((r) => r.json()));
   check('the outputs panel lists renders from the temp root',
     panel.some((r) => r.path.includes('apptest-ui')), `${panel.length} rows`);
+
+  console.log('— A10: unfilled placeholders reach the user, not just the console —');
+  // Clear the image slot and render through the real button. The document ships with a
+  // hole in it; the drawer has to say so.
+  await loadJob('poster-example.json');
+  const drawer = await page.evaluate(async () => {
+    const slot = document.querySelector('[data-field="image:background"]');
+    slot.value = '';
+    slot.dispatchEvent(new Event('input', { bubbles: true }));
+    document.forms.spec.name.value = 'apptest-warn';
+    document.forms.spec.autoOpen.checked = false;
+    await new Promise((r) => setTimeout(r, 900));
+    document.getElementById('render').click();
+    // Wait for the render to land in the drawer.
+    for (let i = 0; i < 120 && !document.querySelector('#result .file, #result .err'); i++) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return {
+      warnings: [...document.querySelectorAll('#result .warn')].map((e) => e.textContent),
+      files: document.querySelectorAll('#result .file').length,
+    };
+  });
+  check('the render still succeeded', drawer.files > 0, `${drawer.files} files`);
+  check('the drawer warns about the unfilled placeholder',
+    drawer.warnings.some((w) => w.includes('image:background')), JSON.stringify(drawer.warnings));
+
+  console.log('— A9: a crashed Chromium heals instead of bricking the server —');
+  const crashed = await page.evaluate(() => fetch('/api/_test/crash-browser', { method: 'POST' }).then((r) => r.json()));
+  check('the test-only crash endpoint killed the browser', crashed.killed === true, JSON.stringify(crashed));
+  await new Promise((r) => setTimeout(r, 500));   // let puppeteer notice the disconnect
+
+  const afterCrash = await page.evaluate(async (s) => {
+    const r = await fetch('/api/render', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: s, autoOpen: false }),
+    });
+    return { status: r.status, body: await r.json() };
+  }, { ...posterSpec, name: 'apptest-after-crash', outputs: ['pdf'] });
+  check('a render after the crash succeeds (browser relaunched)', afterCrash.status === 200,
+    `${afterCrash.status} ${JSON.stringify(afterCrash.body).slice(0, 160)}`);
+  check('and it produced a real PDF', afterCrash.body.outputs?.[0]?.format === 'pdf',
+    JSON.stringify(afterCrash.body.outputs));
+  check('the relaunched browser stays usable',
+    (await page.evaluate(async (s) => {
+      const r = await fetch('/api/render', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ spec: s, autoOpen: false }),
+      });
+      return r.status;
+    }, { ...posterSpec, name: 'apptest-after-crash-2', outputs: ['pdf'] })) === 200);
 } finally {
   await fs.writeFile(legalTemplate, originalLegal);
   await Promise.all([SAVED_JOB, HIDDEN_JOB].map((f) => fs.rm(f, { force: true })));

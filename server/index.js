@@ -30,7 +30,33 @@ const OUTPUTS_DIR = getOutputsRoot();
 let lastSpec = null;
 
 const app = Fastify({ logger: false });
-const browser = await puppeteer.launch();
+
+// One warm Chromium, and it is allowed to die. Before this, a crashed browser meant
+// every subsequent render 400'd until the user restarted the app.
+let browser = await puppeteer.launch();
+let relaunching = null;
+let shuttingDown = false;
+
+async function getBrowser() {
+  if (browser.connected) return browser;
+  if (shuttingDown) throw new Error('server is shutting down');
+  relaunching ??= puppeteer.launch()
+    .then((b) => { browser = b; relaunching = null; return b; })
+    .catch((err) => { relaunching = null; throw err; });
+  return relaunching;
+}
+
+// A render that dies mid-flight because the browser went away is worth exactly one
+// retry against a fresh one. A SpecError is the caller's fault; don't retry that.
+async function renderWithRecovery(spec, autoOpen) {
+  try {
+    return await renderJob(spec, { browser: await getBrowser(), autoOpen });
+  } catch (err) {
+    if (err.name === 'SpecError' || browser.connected) throw err;
+    console.warn('[render] shared Chromium died — relaunching and retrying once');
+    return renderJob(spec, { browser: await getBrowser(), autoOpen });
+  }
+}
 
 await app.register(fastifyWebsocket);
 
@@ -166,13 +192,24 @@ app.get('/preview', async (req, reply) => {
 app.post('/api/render', async (req, reply) => {
   const { spec, autoOpen = true } = req.body;
   try {
-    const results = await renderJob(spec, { browser, autoOpen });
-    return results.map((r) => ({ format: r.format, path: toOutputsUrlPath(r.path) }));
+    const { outputs, warnings } = await renderWithRecovery(spec, autoOpen);
+    return {
+      outputs: outputs.map((r) => ({ format: r.format, path: toOutputsUrlPath(r.path) })),
+      warnings,
+    };
   } catch (err) {
     // SpecError carries field-level errors; anything else is a genuine render failure.
     return reply.code(400).send({ error: err.message, errors: err.errors ?? [] });
   }
 });
+
+// Test-only: kill the shared Chromium so apptest can prove the server heals.
+if (process.env.HIG_TEST === '1') {
+  app.post('/api/_test/crash-browser', async () => {
+    (await getBrowser()).process()?.kill('SIGKILL');
+    return { killed: true };
+  });
+}
 
 app.post('/api/reveal', async (req, reply) => {
   const target = fromOutputsUrlPath(req.body.path);
@@ -195,7 +232,7 @@ chokidar
     broadcast(JSON.stringify({ type: 'reload', file: path.basename(file) }));
     // A changed template (or the example job that feeds it) means a stale thumbnail.
     // ensureThumbnails() is serialized, so this can't race the boot-time pass.
-    const written = await ensureThumbnails(browser).catch((err) => {
+    const written = await ensureThumbnails(await getBrowser()).catch((err) => {
       console.warn(`[thumbs] ${err.message}`);
       return [];
     });
@@ -216,6 +253,7 @@ ensureThumbnails(browser)
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
+    shuttingDown = true;
     await browser.close().catch(() => {});
     await app.close();
     process.exit(0);
