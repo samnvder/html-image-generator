@@ -37,7 +37,7 @@ A **deterministic image generator for print**. Instead of a diffusion model gues
 
 **297 assertions total.**
 
-**Next action is Phase 4** (gated CMYK via Ghostscript) or Phase 5 (print and measure). Both are optional; the MVP is done and the audit is fully remediated.
+**Next: Phases 4 → 5 → 8, now planned to the Phase-7 standard** — see [BUILD_PLAN.md](BUILD_PLAN.md) v1.2. Phase 4 is the press pipeline (gated on Ghostscript; its test suite self-skips without it, and CI installs it so the full path always runs somewhere). Phase 5 is the end-to-end proof — **item 2 needs Sam at a physical printer**. Phase 8 is three small residuals from 7's close-out. All optional; the MVP is done and the audit fully remediated. Three Phase-4 decisions are pre-taken in the plan (in-place CMYK conversion, hard-fail without Ghostscript, honest non-X degradation without an ICC profile) — veto them before starting, not after.
 
 ### What the build proved (research questions closed)
 
