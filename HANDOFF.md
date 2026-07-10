@@ -111,7 +111,7 @@ Two fixes came from *looking* at the app rather than testing it:
 - **The background-tab guard was wrong.** It gated on `document.hidden`, but some environments report a visible tab as hidden — the preview then never rendered at all. It now always starts the render, arms a 4s watchdog to detect a stall, and re-runs on `visibilitychange`. Gate on the symptom, not the proxy.
 - **Preview chrome hardcoded a grey backdrop** that clashed with dark mode, and left a scrollbar sliver. Now transparent with the scrollbar hidden. Fit-page fits *one page*, not the whole document.
 
-**Next: Phase 4** (gated CMYK via Ghostscript) or **Phase 5** (print and measure). Both optional; the MVP is complete and polished.
+**Next: Phase 7 — audit remediation.** A full audit (2026-07-10, [AUDIT.md](AUDIT.md)) found 11 real defects — including two premise bugs: PNG output is corrupted on bleed jobs, and job content is parsed as raw HTML — plus 6 missing features. The executable fix plan with per-item exit tests is [BUILD_PLAN.md → Phase 7](BUILD_PLAN.md): 7A output correctness → 7B data-loss → 7C test isolation + CI → 7D hardening → 7E reproducibility & polish. Phases 4 (gated CMYK) and 5 (print and measure) remain open behind it.
 
 ---
 

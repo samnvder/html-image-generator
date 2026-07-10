@@ -167,6 +167,48 @@ Direction: keep the no-framework constraint (the state is small); rebuild `serve
 
 ---
 
+## Phase 7 — Audit Remediation *(planned 2026-07-10; executes [AUDIT.md](AUDIT.md))*
+
+Five sub-phases, strictly in order — each ends with a **cold** `npm test` (delete `server/.thumbs/` first), a commit, and a push. Item IDs (A1–A11, B1–B6) refer to AUDIT.md. Two standing invariants no fix may break: **paper size is never auto-set** (templates recommend, users choose), and **validation lives only in `scripts/validate.js`**.
+
+### 7A — Output correctness (A1, A2) — the premise bugs
+
+1. **A1 — PNG+bleed corruption.** In `renderJob`, the PNG path must render a **non-paged** composition: bleed/crop marks are print concepts; the PNG is a trim-size screen render. Compose twice when a paged job also wants PNG (`composeDocument(run)` for PDF, a `{ screen: true }` variant that skips polyfill injection for PNG). Do not "fix" by stripping bleed from the spec — the PDF must keep it.
+   *Exit tests (selftest):* a bleed+cropMarks job with `outputs:["pdf","png"]` yields (a) a PDF whose sheet is larger than 612×792 pt, and (b) a PNG that is pixel-equivalent (<0.01% subpixels, delta ≤2) to the same job rendered without bleed. This is the exact probe from the audit, made permanent.
+2. **A2 — content parsed as HTML.** Escape `& < > " '` in all `content` values at substitution time. Add `{{{key}}}` (triple-stache) for deliberate raw markup; `{{image:slot}}` values keep working in `src` attributes (escaping is attribute-safe). Document both in GUARD.md's template rules.
+   *Exit tests (selftest or validatetest):* content `<b>x</b>` appears **literally** in the PDF text (pdfinfo); `use <Enter> to continue` survives intact; the same value through `{{{...}}}` renders as markup (text without the tags).
+
+### 7B — Data-loss & broken-state (A3, A4, A5)
+
+3. **A3** — `/api/jobs` saves to `jobs/${slugify(spec.name)}.json`; response returns the actual filename. *Exit (apptest):* saving name `menu: spring` returns 200 and `jobs/menu-spring.json` exists.
+4. **A4** — variant runs that resolve to an already-used output path auto-suffix `--v2`, `--v3`… *Exit (selftest):* a job with two variants overriding only `content` produces three distinct PDFs, none overwritten.
+5. **A5** — retarget or remove `jobs/example.json` (it references the hidden `_selftest.html`); UI job picker lists only jobs whose template exists in the gallery. *Exit (apptest):* every job in the picker loads into a valid form state.
+
+### 7C — Test isolation, then CI (A7, B4)
+
+6. **A7** — outputs root becomes resolvable at call time: `getOutputsRoot()` reading `process.env.HIG_OUTPUTS_ROOT ?? <default>`; every consumer (paths, server statics/mounts, /api/outputs, /api/projects, reveal check) goes through it. Test suites set it to a temp dir (apptest passes it through the spawned server's env). *Exit:* `git status` clean under `outputs/` after a full cold `npm test`; suites assert their artifacts landed under the temp root.
+7. **B4** — `.github/workflows/test.yml`: push + PR, ubuntu-latest, Node 22, `npm ci && npm test`. Fonts are committed; Puppeteer downloads its own Chromium. *Exit:* push, then `gh run watch` until green — the workflow run itself is the test.
+
+### 7D — Hardening (A6, A8, A9, A10, A11)
+
+8. **A6** — add `isInside(parent, child)` to paths.js (`path.relative`: non-empty ⇒ must not start `..` nor be absolute); replace the four `startsWith` prefix checks (render.js static server, `/api/reveal`, validate.js template + imageSlots). *Exit (validatetest):* unit cases incl. the sibling-prefix trap (`C:\x\outputs` vs `C:\x\outputsX`).
+9. **A8** — validator reads the target template's `template-config` (cache by mtime); `pdfOnly` + `outputs` containing `png` ⇒ field-level error on `outputs`. *Exit (validatetest):* `legal-form.html` + `["png"]` rejected; `["pdf"]` passes.
+10. **A9** — server relaunches Chromium on `disconnected` and retries a failed render once. Add a test-only `POST /api/_test/crash-browser`, enabled only when `HIG_TEST=1` (apptest sets it on the spawned server). *Exit (apptest):* crash the browser via the endpoint, then render successfully.
+11. **A10** — `renderJob` returns `{ outputs, warnings }` (unfilled placeholders etc.). Update every caller: CLI prints warnings to stderr, API includes them in the response, UI shows them in the result drawer, thumbs/tests destructure. *Exit (apptest):* rendering with a missing content key surfaces the placeholder name in the UI drawer.
+12. **A11** — `jobs/schema.json` gains a `$schema` string property. *Exit (validatetest):* every shipped `jobs/*.json` passes `validateSpec`.
+
+### 7E — Reproducibility & polish (B1, B2, B3, B5, B6)
+
+13. **B1** — every successful `/api/render` also writes `jobs/${slugify(name)}.json` (the Guard's reproducibility promise, enforced from the UI path too); response carries `savedSpec`; UI mentions it. *Exit (apptest):* after a UI render, the job file exists and round-trips through the validator.
+14. **B2** — add `pdf-lib` post-step: set Author = project, Subject = docType, Creator = `HTML Image Generator`; leave Chromium's `/Title` (verified: written from `<title>`). Skip Puppeteer's `outline` (experimental, flaky per research). *Exit (templatetest):* pdfinfo-style regex finds `/Author (South End)` in a poster render.
+15. **B3** — image-slot picker: `GET /api/assets` lists image files under `assets/`; slot inputs get a `<datalist>` of those paths plus a live thumbnail preview beside the field (hidden on load error). *Exit (apptest):* the slot input offers the placeholder assets; setting a value updates the preview.
+16. **B5** — favicon (inline SVG data URI) + `theme-color`. No test needed.
+17. **B6 — last, deliberately:** upgrade puppeteer 25 / sharp 0.35 / chokidar 5 / @fastify/static 9 / open 11 (we are ESM on Node 24; `executablePath()` async change doesn't touch us). *Exit:* full cold `npm test` green; if any package breaks, pin it back and record why in AUDIT.md rather than fighting it.
+
+**Close-out:** mark items done in AUDIT.md, update HANDOFF.md (status + any new "facts that will bite you"), bump README test counts, final cold `npm test`, commit, push.
+
+---
+
 ## Build Order & Dependencies
 
 ```
