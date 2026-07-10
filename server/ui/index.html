@@ -83,6 +83,13 @@
           <label class="check-row"><input type="checkbox" name="cropMarks"> Crop marks</label>
         </div>
         <p class="hint" id="paged-note" hidden>Bleed or crop marks route the render through Paged.js.</p>
+        <label>Color intent
+          <select name="colorIntent">
+            <option value="rgb">RGB — screen and desktop printing</option>
+            <option value="cmyk">CMYK — commercial press</option>
+          </select>
+        </label>
+        <p class="hint" id="press-note"></p>
         <label>Resolution (DPI, affects PNG only)
           <input name="dpi" type="number" value="300" min="72" max="1200">
         </label>

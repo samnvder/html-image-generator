@@ -22,6 +22,7 @@ import { PDFDocument } from 'pdf-lib';
 import {
   PAPER_SIZES, PROJECT_ROOT, isInside, outputKey, resolveOutputPath, writeLatest,
 } from './paths.js';
+import { convertToCmyk, ghostscriptMissingMessage, isPressAvailable } from './press.js';
 import { assertValidSpec } from './validate.js';
 
 const DEFAULTS = {
@@ -271,6 +272,18 @@ async function withDocument(html, fn) {
 // told. Warnings now travel back to whoever asked for the render.
 export async function renderJob(rawSpec, opts = {}) {
   const spec = applyDefaults(rawSpec);
+
+  // Whether Ghostscript is installed is a property of the machine, not of the spec, so
+  // it is checked here and never in validate.js — the colorIntent *enum* is the spec
+  // property, and that stays in the validator.
+  //
+  // This runs before Chromium starts and before a single byte is written. A cmyk job on
+  // a machine without Ghostscript fails loudly and leaves nothing behind. It never
+  // falls back to RGB: an RGB file handed to a press as CMYK is the same class of bug
+  // as A1 — the wrong document, delivered silently.
+  const wantsPress = [spec, ...spec.variants].some((run) => (run.colorIntent ?? spec.colorIntent) === 'cmyk');
+  if (wantsPress && !isPressAvailable()) throw new Error(ghostscriptMissingMessage());
+
   const when = opts.when ?? new Date();
   const ownBrowser = !opts.browser;
   const browser = opts.browser ?? await puppeteer.launch();
@@ -310,11 +323,32 @@ export async function renderJob(rawSpec, opts = {}) {
           try { return await renderPdf(page, url, paged, run); } finally { await page.close(); }
         });
         const out = await resolveOutputPath(run, 'pdf', when, suffix);
-        await fs.writeFile(out, pdf);
+        if (run.colorIntent === 'cmyk') {
+          // The deliverable *is* the converted file. No RGB intermediate is kept — the
+          // job spec reproduces it on demand, which is what the spec is for. So the RGB
+          // lands beside the target under a temp name, Ghostscript writes the target,
+          // and the intermediate goes away: `out` never exists as an RGB file, and if
+          // the conversion fails it never exists at all.
+          const rgbTmp = `${out}.rgb.tmp`;
+          await fs.writeFile(rgbTmp, pdf);
+          try {
+            const press = await convertToCmyk(rgbTmp, out);
+            for (const w of press.warnings) warnings.add(w);
+          } finally {
+            await fs.rm(rgbTmp, { force: true });
+          }
+        } else {
+          await fs.writeFile(out, pdf);
+        }
         await writeLatest(out);
         results.push({ format: 'pdf', path: out });
       }
       if (run.outputs.includes('png')) {
+        // A raster has no press colour path: sharp and Chromium both speak sRGB. Say so
+        // rather than let a "cmyk" job hand back an RGB PNG that looks like a deliverable.
+        if (run.colorIntent === 'cmyk') {
+          warnings.add(`${run.name}: the PNG is RGB — colorIntent "cmyk" applies to the PDF only.`);
+        }
         // Screen render — no polyfill, no @page. Templates size themselves with
         // --page-width/--page-height/--page-margin.
         const { html, unfilled } = await composeDocument(run, { screen: true });

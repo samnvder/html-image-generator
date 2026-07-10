@@ -11,12 +11,15 @@
 //   HIG_GS=0            pretend Ghostscript is absent, on a machine that has it
 //   HIG_ICC_PROFILE=0   pretend no ICC profile exists, on a machine that has one
 
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import puppeteer from 'puppeteer';
 import { pdfInfo, inspectFonts, inspectPdfDeep, isSubsetted } from './pdfinfo.js';
 import { renderJob } from './render.js';
-import { PROJECT_ROOT } from './paths.js';
+import { PROJECT_ROOT, outputDirFor } from './paths.js';
 import {
   NO_ICC_WARNING, convertToCmyk, findGhostscript, findIccProfile,
   ghostscriptVersion, isPressAvailable,
@@ -55,6 +58,50 @@ console.log('— Detection —');
   check('a HIG_ICC_PROFILE that does not exist resolves to none, not to a bad path',
     findIccProfile() === null);
   if (real === undefined) delete process.env.HIG_ICC_PROFILE; else process.env.HIG_ICC_PROFILE = real;
+}
+
+// ---- the hard-fail contract, which also needs no Ghostscript -------------
+// This block runs on EVERY machine. It is the half of Phase 4 that matters most: a cmyk
+// job on a box without Ghostscript must fail loudly, before anything renders, and never
+// silently ship RGB as press output.
+console.log('\n— cmyk without Ghostscript: hard error, nothing written —');
+{
+  const posterExample = JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'poster-example.json'), 'utf8'));
+  const spec = { ...posterExample, $schema: undefined, name: 'presstest-nogs', project: 'Press Probe', colorIntent: 'cmyk' };
+  delete spec.$schema;
+
+  const realGs = process.env.HIG_GS;
+  process.env.HIG_GS = '0';
+  const dir = outputDirFor(spec);
+
+  let err = null;
+  const t0 = Date.now();
+  try { await renderJob(spec, { autoOpen: false }); } catch (e) { err = e; }
+  const elapsed = Date.now() - t0;
+
+  check('renderJob() rejects a cmyk job when Ghostscript is absent', err !== null);
+  check('the error names Ghostscript and the fix', /Ghostscript/.test(err?.message ?? ''), err?.message);
+  check('it says "rgb" is the alternative', /"rgb"/.test(err?.message ?? ''), err?.message);
+  // Chromium takes ~400ms to launch. Failing in a fraction of that proves the check ran
+  // before the browser, not after a render was thrown away.
+  check('it fails before Chromium even launches', elapsed < 250, `${elapsed} ms`);
+  check('and no output file exists afterward — not even the folder',
+    !(await fs.stat(dir).then(() => true, () => false)), dir);
+
+  // The CLI is the interface an LLM agent drives. Same contract, through a real process.
+  const jobFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'hig-nogs-')), 'nogs.json');
+  await fs.writeFile(jobFile, JSON.stringify({ ...spec, name: 'presstest-nogs-cli' }, null, 2));
+  let cli = null;
+  try {
+    await promisify(execFile)(process.execPath, [path.join(PROJECT_ROOT, 'scripts', 'render.js'), jobFile, '--no-open'], {
+      env: { ...process.env, HIG_GS: '0', HIG_OUTPUTS_ROOT: OUTPUTS_ROOT },
+    });
+  } catch (e) { cli = e; }
+  check('the CLI exits nonzero on a cmyk job without Ghostscript', cli !== null && cli.code !== 0, `code ${cli?.code}`);
+  check('and prints a message naming Ghostscript to stderr', /Ghostscript/.test(cli?.stderr ?? ''), (cli?.stderr ?? '').trim());
+  await fs.rm(path.dirname(jobFile), { recursive: true, force: true });
+
+  if (realGs === undefined) delete process.env.HIG_GS; else process.env.HIG_GS = realGs;
 }
 
 const gs = findGhostscript();
@@ -161,6 +208,39 @@ if (!icc) {
     `objStm=${deep.objStreams} regexFontFiles=${inspectFonts(buf).embedded}`);
   check('pdfx: a real output intent means no degradation warning',
     pdfx === 'PDF/X-4' && warnings.length === 0, JSON.stringify(warnings));
+}
+
+console.log('\n— Integration: a cmyk job through renderJob() —');
+{
+  const browser2 = await puppeteer.launch();
+  let outputs;
+  let warnings;
+  try {
+    ({ outputs, warnings } = await renderJob({
+      ...posterSpec, name: 'presstest-cmyk', colorIntent: 'cmyk', outputs: ['pdf', 'png'],
+    }, { browser: browser2, autoOpen: false }));
+  } finally {
+    await browser2.close();
+  }
+
+  const pdf = outputs.find((r) => r.format === 'pdf').path;
+  const deep = await inspectPdfDeep(await fs.readFile(pdf));
+  check('cmyk job: the PDF deliverable IS the converted file, converted in place',
+    deep.deviceCmyk > 0 && deep.deviceRgb === 0, `cmyk=${deep.deviceCmyk} rgb=${deep.deviceRgb}`);
+
+  const dir = path.dirname(pdf);
+  const [deliverable, latest] = await Promise.all([fs.readFile(pdf), fs.readFile(path.join(dir, 'latest.pdf'))]);
+  check('cmyk job: latest.pdf is the converted file, not the RGB original', deliverable.equals(latest));
+  const strays = (await fs.readdir(dir)).filter((f) => f.endsWith('.tmp'));
+  check('cmyk job: no RGB intermediate survives the render', strays.length === 0, strays.join(' '));
+
+  check('cmyk job: the PNG is flagged as RGB rather than passed off as press output',
+    warnings.some((w) => /the PNG is RGB/.test(w)), JSON.stringify(warnings));
+  check(icc
+    ? 'cmyk job: with a profile, no degradation warning'
+    : 'cmyk job: without a profile, warnings[] says it is not PDF/X',
+    icc ? !warnings.includes(NO_ICC_WARNING) : warnings.includes(NO_ICC_WARNING),
+    JSON.stringify(warnings));
 }
 
 console.log(`\noutputs root: ${OUTPUTS_ROOT}`);

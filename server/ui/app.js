@@ -49,6 +49,7 @@ function readSpec() {
     cropMarks: form.cropMarks.checked,
     outputs: outputs.length ? outputs : ['pdf'],
     dpi: Number(f.get('dpi')) || 300,
+    colorIntent: f.get('colorIntent') || 'rgb',
     content,
     imageSlots,
   };
@@ -379,6 +380,26 @@ async function refreshAssets() {
   $('#assets').innerHTML = ASSETS.map((a) => `<option value="${a}">`).join('');
 }
 
+// ---- press capability ----------------------------------------------------
+// What the machine can do, not what the spec may say. The CMYK option is disabled when
+// Ghostscript isn't installed — the UI does not re-implement the check, it asks.
+
+async function refreshCapabilities() {
+  const caps = await (await fetch('/api/capabilities')).json();
+  const cmyk = form.colorIntent.querySelector('option[value=cmyk]');
+  const note = $('#press-note');
+
+  cmyk.disabled = !caps.press;
+  if (!caps.press) {
+    form.colorIntent.value = 'rgb';
+    note.textContent = 'CMYK needs Ghostscript, which isn\'t installed. Install it (or set HIG_GS) and reload.';
+  } else if (!caps.icc) {
+    note.textContent = 'CMYK converts, but no ICC profile is present — the PDF gets no output intent. See assets/icc/README.md.';
+  } else {
+    note.textContent = `CMYK converts to ${caps.pdfx}, with the ICC profile embedded as the output intent.`;
+  }
+}
+
 // ---- render --------------------------------------------------------------
 
 const revealButton = (p) => {
@@ -508,6 +529,10 @@ $('#load-job').addEventListener('click', async () => {
   form.bleed.value = spec.bleed ?? '0';
   form.cropMarks.checked = Boolean(spec.cropMarks);
   form.dpi.value = spec.dpi ?? 300;
+  // A cmyk job loaded on a machine without Ghostscript keeps saying cmyk. Quietly
+  // rewriting it to rgb here is the fallback the whole phase exists to forbid; the
+  // render fails loudly instead, and the hint under the control already says why.
+  form.colorIntent.value = spec.colorIntent ?? 'rgb';
   form.png.disabled = Boolean(TEMPLATES.get(spec.template)?.config?.pdfOnly);
   form.pdf.checked = (spec.outputs ?? ['pdf']).includes('pdf');
   form.png.checked = (spec.outputs ?? []).includes('png');
@@ -578,6 +603,7 @@ select.innerHTML = templates.map((t) => `<option value="${t.file}">${t.title}</o
 buildGallery(templates);
 
 await refreshAssets();
+await refreshCapabilities();
 applyTemplateConfig();
 await loadContentFields(select.value);
 await Promise.all([refreshProjects(), refreshJobs(), refreshOutputs()]);

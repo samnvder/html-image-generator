@@ -27,7 +27,7 @@ A flyer printed on the wrong stock is a wasted print run. Ask.
 | 3 | Orientation | `orientation` | Default `portrait`. State it. |
 | 4 | Output format | `outputs` | Default `["pdf"]`. Add `"png"` if they want a raster. |
 | 5 | DPI | `dpi` | Default `300` (press standard). Only matters for PNG. |
-| 6 | Color intent | `colorIntent` | Default `rgb`. `cmyk` requires Ghostscript (Phase 4). |
+| 6 | Color intent | `colorIntent` | Default `rgb`. `cmyk` **requires Ghostscript** and converts the PDF in place — see below. |
 | 7 | Margins | `margin` | Default `0.5in`. Use `0` for full-bleed designs. |
 | 8 | Bleed | `bleed` | Default `0`. Commercial press → `0.125in`. |
 | 9 | Crop marks | `cropMarks` | Default `false`. Commercial press → `true`. |
@@ -69,6 +69,30 @@ Note what happened: thirteen decisions were made *for* the user and shown for co
    - `legal-form.html` — Legal size, flowing multi-page text, native running header/footer
 3. **Render:** `node scripts/render.js jobs/<name>.json` (add `--no-open` to suppress the viewer).
 4. **Report the output path.** Renders land in `outputs/<project-slug>/<doctype-plural>/`, plus a `latest.pdf` copy.
+
+---
+
+## Color intent, if the job is going to a commercial press
+
+`colorIntent: "cmyk"` is the only variable that depends on the *machine* rather than the
+spec. Ask for it when the user says "press", "printer" (the company, not the device), or
+"CMYK". Otherwise leave it `rgb` and say so.
+
+- **A cmyk job's PDF deliverable *is* the converted file.** Ghostscript converts it in
+  place, before `latest.pdf` is written. No RGB intermediate survives — the job spec
+  reproduces the render on demand, which is what the spec is for.
+- **No Ghostscript, no render.** `cmyk` on a machine without it is a hard error thrown
+  before Chromium starts and before any file is written, naming the fix. There is no RGB
+  fallback: an RGB file shipped as press output is a wasted print run, and a silent one.
+- **With an ICC profile** at `assets/icc/press.icc` (or `HIG_ICC_PROFILE`) the output is
+  **PDF/X-4**, with the profile embedded as the output intent. **Without one** it is a
+  plain CMYK PDF, and `warnings[]` says exactly that. The tool never claims a PDF/X
+  conformance it did not produce. See [`assets/icc/README.md`](assets/icc/README.md).
+- **PDF/X-1a and X-3 are not offered.** Ghostscript writes them as PDF 1.3, which has no
+  transparency, so it flattens the page to a bitmap: no embedded fonts, no selectable
+  text. If a printer insists on X-1a, tell them; don't hand them a raster.
+- **The PNG stays RGB.** `colorIntent` applies to the PDF only, and a cmyk job that also
+  asks for PNG gets a warning saying so.
 
 ---
 

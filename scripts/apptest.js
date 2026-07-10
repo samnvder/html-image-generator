@@ -35,7 +35,11 @@ const server = spawn(process.execPath, [path.join(PROJECT_ROOT, 'server', 'index
   cwd: PROJECT_ROOT, stdio: ['ignore', 'pipe', 'pipe'],
   // HIG_TEST=1 exposes POST /api/_test/crash-browser, which exists only so this suite
   // can prove the server survives a dead Chromium.
-  env: { ...process.env, HIG_OUTPUTS_ROOT: OUTPUTS_ROOT, HIG_TEST: '1' },
+  //
+  // HIG_GS=0 pins the press capability to "absent" whether or not this machine has
+  // Ghostscript (CI does). Otherwise the CMYK assertions below would test one thing on
+  // a dev box and the opposite in CI. presstest owns the Ghostscript-present path.
+  env: { ...process.env, HIG_OUTPUTS_ROOT: OUTPUTS_ROOT, HIG_TEST: '1', HIG_GS: '0' },
 });
 
 const base = await new Promise((resolve, reject) => {
@@ -554,6 +558,41 @@ try {
   check('the drawer warns about the unfilled placeholder',
     drawer.warnings.some((w) => w.includes('image:background')), JSON.stringify(drawer.warnings));
 
+  console.log('— Phase 4C: /api/capabilities drives the CMYK control —');
+  // The server was spawned with HIG_GS=0, so press is "absent" here by construction.
+  await loadJob('poster-example.json');
+  const press = await page.evaluate(async () => {
+    const caps = await (await fetch('/api/capabilities')).json();
+    const select = document.forms.spec.colorIntent;
+    return {
+      caps,
+      cmykDisabled: select.querySelector('option[value=cmyk]').disabled,
+      value: select.value,
+      note: document.getElementById('press-note').textContent,
+    };
+  });
+  check('GET /api/capabilities reports press: false without Ghostscript',
+    press.caps.press === false && press.caps.pdfx === null, JSON.stringify(press.caps));
+  check('the CMYK option is disabled, and the control defaults to rgb',
+    press.cmykDisabled === true && press.value === 'rgb', JSON.stringify(press));
+  check('a hint names Ghostscript rather than leaving the user guessing',
+    /Ghostscript/.test(press.note), press.note);
+
+  // Never an RGB fallback: the API must refuse, not quietly render the wrong colour space.
+  const cmykRejected = await page.evaluate(async (s) => {
+    const r = await fetch('/api/render', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ spec: s, autoOpen: false }),
+    });
+    return { status: r.status, body: await r.json() };
+  }, { ...posterSpec, name: 'apptest-cmyk-nogs', outputs: ['pdf'], colorIntent: 'cmyk' });
+  check('POST /api/render rejects a cmyk job with 400 when Ghostscript is absent',
+    cmykRejected.status === 400, `${cmykRejected.status}`);
+  check('and the message names Ghostscript', /Ghostscript/.test(cmykRejected.body.error ?? ''), cmykRejected.body.error);
+  const cmykDir = path.join(OUTPUTS_ROOT, 'south-end', 'posters');
+  const cmykStrays = (await fs.readdir(cmykDir)).filter((f) => f.includes('apptest-cmyk-nogs'));
+  check('and nothing was written for it', cmykStrays.length === 0, cmykStrays.join(' '));
+
   console.log('— A9: a crashed Chromium heals instead of bricking the server —');
   const crashed = await page.evaluate(() => fetch('/api/_test/crash-browser', { method: 'POST' }).then((r) => r.json()));
   check('the test-only crash endpoint killed the browser', crashed.killed === true, JSON.stringify(crashed));
@@ -586,6 +625,10 @@ try {
     const input = document.querySelector('[data-field="image:background"]');
     const options = [...document.querySelectorAll('#assets option')].map((o) => o.value);
     const img = input.parentElement.querySelector('img.slot-preview');
+    // `naturalWidth` is set the moment the image decodes, but `hidden` only clears when
+    // the load *event* dispatches — a later task. Reading both in one tick catches the
+    // gap and reports a false failure. Wait for the handler, don't race it.
+    for (let i = 0; i < 60 && img && img.hidden; i++) await new Promise((r) => setTimeout(r, 50));
     // The example job already points at a real asset, so the preview should be showing.
     const shownFor = { src: img?.getAttribute('src'), hidden: img?.hidden, natural: img?.naturalWidth ?? 0 };
 

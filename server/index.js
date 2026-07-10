@@ -17,6 +17,7 @@ import {
   PROJECT_ROOT, getOutputsRoot, outputDirFor, slugify, isInside, toOutputsUrlPath, fromOutputsUrlPath,
 } from '../scripts/paths.js';
 import { validateSpec } from '../scripts/validate.js';
+import { PDFX_LEVEL, findIccProfile, isPressAvailable } from '../scripts/press.js';
 import { listTemplates } from '../scripts/templates.js';
 import { ensureThumbnails, THUMB_DIR } from '../scripts/thumbs.js';
 
@@ -83,6 +84,15 @@ await app.register(fastifyStatic, { root: THUMB_DIR, prefix: '/thumbs/', decorat
 // ---- api -----------------------------------------------------------------
 
 app.get('/api/schema', async () => JSON.parse(await fs.readFile(path.join(PROJECT_ROOT, 'jobs', 'schema.json'), 'utf8')));
+
+// What this machine can do, as opposed to what a spec may ask for. The UI uses it to
+// disable the CMYK control rather than to validate anything — the enum lives in
+// validate.js, the environment check lives in renderJob().
+app.get('/api/capabilities', async () => {
+  const press = isPressAvailable();
+  const icc = press ? Boolean(findIccProfile()) : false;
+  return { press, icc, pdfx: icc ? PDFX_LEVEL : null };
+});
 
 // Each entry carries the template's declared config (paper, orientation, margin)
 // and its {{placeholders}}, so the UI configures itself on selection.
