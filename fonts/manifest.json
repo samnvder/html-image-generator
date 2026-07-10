@@ -1,0 +1,44 @@
+{
+  "note": "Fonts shipped with this project. All SIL Open Font License 1.1 — free to embed in PDFs and redistribute. Templates declare @font-face in templates/base.css; a job spec's `fonts` array is informational. Re-download with `node scripts/fetch-fonts.js`.",
+  "families": [
+    {
+      "family": "Inter",
+      "role": "sans",
+      "license": "OFL-1.1",
+      "source": "https://fonts.google.com/specimen/Inter",
+      "faces": [
+        { "file": "inter-400.woff2", "format": "woff2", "weight": 400, "style": "normal" },
+        { "file": "inter-700.woff2", "format": "woff2", "weight": 700, "style": "normal" }
+      ]
+    },
+    {
+      "family": "Source Serif 4",
+      "role": "serif",
+      "license": "OFL-1.1",
+      "source": "https://fonts.google.com/specimen/Source+Serif+4",
+      "faces": [
+        { "file": "source-serif-400.woff2", "format": "woff2", "weight": 400, "style": "normal" },
+        { "file": "source-serif-700.woff2", "format": "woff2", "weight": 700, "style": "normal" }
+      ]
+    },
+    {
+      "family": "Playfair Display",
+      "role": "display",
+      "license": "OFL-1.1",
+      "source": "https://fonts.google.com/specimen/Playfair+Display",
+      "faces": [
+        { "file": "playfair-display-700.woff2", "format": "woff2", "weight": 700, "style": "normal" }
+      ]
+    },
+    {
+      "family": "Open Sans",
+      "role": "test",
+      "license": "OFL-1.1",
+      "source": "https://github.com/googlefonts/opensans",
+      "note": "Static TTF, present to prove the TTF @font-face path embeds identically to WOFF2 (see scripts/fonttest.js).",
+      "faces": [
+        { "file": "open-sans-400.ttf", "format": "truetype", "weight": 400, "style": "normal" }
+      ]
+    }
+  ]
+}

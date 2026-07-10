@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{title}}</title>
+<link rel="stylesheet" href="/templates/base.css">
+<style>
+  /* Landscape certificate. Set orientation:"landscape", margin:"0" in the job spec.
+     The recipient name is a single field — data-merge ready (spec.variants). */
+  .sheet { --pad: 0; }
+
+  .border-outer {
+    position: absolute;
+    inset: 0.35in;
+    border: 2.5pt solid var(--accent);
+  }
+  .border-inner {
+    position: absolute;
+    inset: 0.5in;
+    border: 0.75pt solid var(--accent);
+    opacity: 0.55;
+  }
+
+  .content {
+    position: absolute;
+    inset: 0.5in;
+    padding: 0.55in 0.9in;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .seal {
+    width: 0.9in;
+    height: 0.9in;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 1pt solid var(--rule);
+    margin-bottom: 0.16in;
+    flex: none;
+  }
+
+  .title {
+    font-family: var(--display);
+    font-size: 30pt;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin: 0 0 0.05in 0;
+  }
+
+  .subtitle {
+    font-size: 9.5pt;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 0.3in 0;
+  }
+
+  .presented {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 12.5pt;
+    color: var(--ink-soft);
+    margin: 0 0 0.1in 0;
+  }
+
+  /* The merge field. Long names shrink rather than wrap. */
+  .recipient {
+    font-family: var(--display);
+    font-size: 42pt;
+    font-weight: 700;
+    line-height: 1.1;
+    margin: 0 0 0.12in 0;
+    padding: 0 0.2in 0.12in;
+    border-bottom: 0.75pt solid var(--rule);
+    min-width: 5in;
+  }
+
+  .citation {
+    font-family: var(--serif);
+    font-size: 12pt;
+    line-height: 1.55;
+    max-width: 6.2in;
+    margin: 0.16in 0 0 0;
+    text-wrap: balance;
+  }
+
+  .signatures {
+    display: flex;
+    gap: 1.1in;
+    margin-top: auto;
+    width: 100%;
+    justify-content: center;
+  }
+  .sig { flex: 0 1 2.6in; }
+  .sig-line {
+    border-top: 0.75pt solid var(--ink);
+    padding-top: 0.06in;
+    margin-top: 0.42in;
+  }
+  .sig-name { font-size: 11pt; font-weight: 700; }
+  .sig-role {
+    font-size: 8.5pt;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-top: 0.02in;
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="border-outer"></div>
+    <div class="border-inner"></div>
+
+    <div class="content">
+      <div class="seal"><img class="slot" src="{{image:seal}}" alt=""></div>
+
+      <h1 class="title">{{title}}</h1>
+      <div class="subtitle">{{subtitle}}</div>
+
+      <div class="presented">is hereby presented to</div>
+      <div class="recipient">{{recipient}}</div>
+
+      <p class="citation">{{citation}}</p>
+
+      <div class="signatures">
+        <div class="sig">
+          <div class="sig-line"></div>
+          <div class="sig-name">{{signatory1}}</div>
+          <div class="sig-role">{{role1}}</div>
+        </div>
+        <div class="sig">
+          <div class="sig-line"></div>
+          <div class="sig-name">{{signatory2}}</div>
+          <div class="sig-role">{{role2}}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

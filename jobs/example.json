@@ -1,0 +1,16 @@
+{
+  "$schema": "./schema.json",
+  "name": "example-selftest",
+  "project": "Demo",
+  "docType": "test-sheet",
+  "paperSize": "letter",
+  "orientation": "portrait",
+  "outputs": ["pdf", "png"],
+  "dpi": 300,
+  "margin": "0",
+  "template": "_selftest.html",
+  "content": {
+    "title": "HTML Image Generator",
+    "note": "US Letter 8.5×11in — rendered deterministically by headless Chromium"
+  }
+}

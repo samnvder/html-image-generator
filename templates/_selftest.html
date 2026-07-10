@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>selftest</title>
+<style>
+  .page {
+    width: var(--page-width);
+    height: var(--page-height);
+    box-sizing: border-box;
+    overflow: hidden;
+    position: relative;
+    background: #fff;
+    font-family: Arial, sans-serif;
+  }
+  /* Corner markers — Probe A checks the bottom-right one survives high deviceScaleFactor */
+  .corner { position: absolute; width: 0.5in; height: 0.5in; background: #000; }
+  .tl { top: 0; left: 0; }
+  .tr { top: 0; right: 0; }
+  .bl { bottom: 0; left: 0; }
+  .br { bottom: 0; right: 0; }
+  .rule {
+    position: absolute; top: 50%; left: 0.5in; right: 0.5in;
+    border-top: 0.5pt solid #888;
+  }
+  h1 {
+    position: absolute; top: 40%; width: 100%;
+    text-align: center; font-size: 24pt; margin: 0;
+  }
+  .meta {
+    position: absolute; top: 55%; width: 100%;
+    text-align: center; font-size: 10pt; color: #444;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div class="rule"></div>
+    <h1>{{title}}</h1>
+    <div class="meta">{{note}}</div>
+  </div>
+</body>
+</html>

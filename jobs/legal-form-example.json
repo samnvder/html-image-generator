@@ -1,0 +1,31 @@
+{
+  "$schema": "./schema.json",
+  "name": "vendor-agreement",
+  "project": "South End",
+  "docType": "legal-form",
+  "paperSize": "legal",
+  "orientation": "portrait",
+  "outputs": ["pdf"],
+  "margin": "0.9in 0.85in",
+  "template": "legal-form.html",
+  "fonts": ["Source Serif 4", "Inter"],
+  "content": {
+    "org": "South End Hospitality Group",
+    "title": "Vendor Supply Agreement",
+    "docNumber": "FORM SE-114",
+    "effectiveDate": "1 May 2026",
+    "jurisdiction": "Commonwealth of Massachusetts",
+    "parties": "This Agreement is entered into by and between South End Hospitality Group, a Massachusetts limited liability company with its principal place of business at 412 Mill Street (the \"Purchaser\"), and the undersigned supplier of goods or services (the \"Vendor\"). Each may be referred to individually as a \"Party\" and collectively as the \"Parties.\"",
+    "recitals": "Whereas the Purchaser operates one or more food service establishments and requires a reliable supply of goods conforming to defined quality standards; and whereas the Vendor represents that it is duly licensed, insured, and capable of supplying such goods in the quantities and at the intervals contemplated herein; now, therefore, in consideration of the mutual covenants set forth below, the Parties agree as follows.",
+    "clause1": "Delivery. Vendor shall deliver all goods to the Purchaser's designated receiving dock between the hours of 6:00 AM and 10:00 AM local time, Monday through Saturday, excepting recognized holidays. Time is of the essence with respect to all delivery obligations.",
+    "clause2": "Quality and Inspection. All goods shall conform to the specifications set forth in Exhibit A. Purchaser shall have seventy-two (72) hours from receipt to inspect and reject nonconforming goods. Rejected goods shall be removed by Vendor at Vendor's sole expense within forty-eight (48) hours of notice.",
+    "clause3": "Pricing and Invoicing. Prices shall be those set forth in Exhibit B and shall remain firm for the initial term. Vendor shall invoice monthly in arrears. Payment shall be due net thirty (30) days from the date of a conforming invoice.",
+    "clause4": "Insurance. Vendor shall maintain, at its own expense, commercial general liability insurance with limits not less than one million dollars ($1,000,000) per occurrence, and shall name Purchaser as an additional insured. Certificates of insurance shall be furnished upon execution and annually thereafter.",
+    "clause5": "Indemnification. Vendor shall indemnify, defend, and hold harmless Purchaser and its officers, members, employees, and agents from and against any and all claims, damages, losses, and expenses, including reasonable attorneys' fees, arising out of or resulting from Vendor's performance or nonperformance under this Agreement.",
+    "clause6": "Term and Termination. The initial term shall be twelve (12) months from the Effective Date and shall renew automatically for successive twelve-month periods unless either Party gives written notice of non-renewal not less than sixty (60) days prior to the end of the then-current term. Either Party may terminate for material breach upon thirty (30) days' written notice, provided the breaching Party has not cured within that period.",
+    "notice": "Execution of this form does not by itself create a binding supply obligation. A purchase order issued by the Purchaser and accepted by the Vendor is required for each individual order. Retain a fully executed copy for your records.",
+    "governingLaw": "This Agreement shall be governed by and construed in accordance with the laws of the Commonwealth of Massachusetts, without regard to its conflict of laws provisions. The Parties consent to the exclusive jurisdiction of the state and federal courts located in Suffolk County, Massachusetts, for the resolution of any dispute arising hereunder.",
+    "entireAgreement": "This Agreement, together with all Exhibits attached hereto and incorporated herein by reference, constitutes the entire agreement between the Parties with respect to its subject matter, and supersedes all prior and contemporaneous understandings, agreements, representations, and warranties, whether written or oral. No amendment shall be effective unless made in writing and signed by an authorized representative of each Party.",
+    "attestation": "The undersigned represents and warrants that he or she is duly authorized to execute this Agreement on behalf of the Vendor, and that the information supplied in Section 1 is true, complete, and accurate to the best of his or her knowledge, under penalty of perjury."
+  }
+}

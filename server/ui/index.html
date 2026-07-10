@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML Image Generator</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>HTML Image Generator</h1>
+  <div class="status"><span id="ws-dot" class="dot"></span><span id="ws-label">connecting…</span></div>
+</header>
+
+<main>
+  <!-- Left: the Question Guard, as a form. -->
+  <form id="spec" autocomplete="off">
+    <section>
+      <h2>Destination</h2>
+      <label>Project
+        <input name="project" list="projects" value="South End" required>
+        <datalist id="projects"></datalist>
+      </label>
+      <label>Document type
+        <input name="docType" list="doctypes" value="poster" required>
+        <datalist id="doctypes"></datalist>
+      </label>
+    </section>
+
+    <!-- The one variable that is never defaulted. -->
+    <section class="guard" id="guard">
+      <h2>Paper size <span class="req">required</span></h2>
+      <p class="hint">Never defaulted. A flyer printed on the wrong stock is a wasted print run.</p>
+      <div class="radios">
+        <label class="radio"><input type="radio" name="paperSize" value="letter"><span><strong>Letter</strong><em>8.5 × 11 in</em></span></label>
+        <label class="radio"><input type="radio" name="paperSize" value="legal"><span><strong>Legal</strong><em>8.5 × 14 in</em></span></label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Layout</h2>
+      <label>Template
+        <select name="template" required></select>
+      </label>
+      <label>Orientation
+        <select name="orientation">
+          <option value="portrait" selected>Portrait</option>
+          <option value="landscape">Landscape</option>
+        </select>
+      </label>
+      <label>Margin
+        <input name="margin" value="0.5in">
+      </label>
+      <div class="row">
+        <label>Bleed
+          <input name="bleed" value="0">
+        </label>
+        <label class="check"><input type="checkbox" name="cropMarks"> Crop marks</label>
+      </div>
+      <p class="hint" id="paged-note" hidden>Bleed or crop marks → rendered through Paged.js.</p>
+    </section>
+
+    <section>
+      <h2>Output</h2>
+      <label>Job name
+        <input name="name" value="untitled" required>
+      </label>
+      <div class="row">
+        <label class="check"><input type="checkbox" name="pdf" checked> PDF</label>
+        <label class="check"><input type="checkbox" name="png"> PNG</label>
+        <label>DPI
+          <input name="dpi" type="number" value="300" min="72" max="1200">
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" name="autoOpen" checked> Open when done</label>
+    </section>
+
+    <section>
+      <h2>Content</h2>
+      <p class="hint">Fields discovered from the template's <code>{{placeholders}}</code>.</p>
+      <div id="content-fields"></div>
+    </section>
+
+    <section>
+      <h2>Load a saved job</h2>
+      <div class="row">
+        <select id="job-picker"><option value="">—</option></select>
+        <button type="button" id="load-job" class="ghost">Load</button>
+        <button type="button" id="save-job" class="ghost">Save spec</button>
+      </div>
+    </section>
+  </form>
+
+  <!-- Right: dimensionally accurate preview. -->
+  <div class="preview">
+    <div class="toolbar">
+      <button type="button" id="render" disabled>Choose a paper size</button>
+      <div class="zoom">
+        <label>Zoom <input type="range" id="zoom" min="20" max="120" value="55"></label>
+        <span id="zoom-label">55%</span>
+      </div>
+    </div>
+    <p class="dest" id="dest">→ outputs/…</p>
+    <div class="stage" id="stage">
+      <iframe id="frame" src="about:blank" title="preview"></iframe>
+    </div>
+    <div id="result" class="result" hidden></div>
+  </div>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

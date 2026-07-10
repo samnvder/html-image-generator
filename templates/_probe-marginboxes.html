@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>margin-box probe</title>
+<style>
+  /* Probe B: does Chromium render @page margin boxes natively (no Paged.js)?
+     If MBPROBE-NATIVE appears in the PDF text, the answer is yes. */
+  @page {
+    @top-center { content: "MBPROBE-NATIVE"; }
+    @bottom-right { content: "Page " counter(page); }
+  }
+  body { font-family: Arial, sans-serif; font-size: 12pt; }
+</style>
+</head>
+<body>
+  <p>MBPROBE-BODY — this body text always renders; the header above only renders if native margin boxes are supported.</p>
+</body>
+</html>

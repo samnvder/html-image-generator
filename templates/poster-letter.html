@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{headline}}</title>
+<link rel="stylesheet" href="/templates/base.css">
+<style>
+  /* Full-bleed poster: art fills the sheet, type sits in a legible scrim.
+     Set margin:"0" in the job spec. Add bleed:"0.125in" + cropMarks:true for press. */
+  .sheet { --pad: 0; color: #fff; background: #14181f; }
+
+  .art { position: absolute; inset: 0; }
+  .art .slot { filter: saturate(0.9) brightness(0.72); }
+
+  .scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom,
+      rgba(10, 12, 16, 0.55) 0%,
+      rgba(10, 12, 16, 0.10) 38%,
+      rgba(10, 12, 16, 0.72) 78%,
+      rgba(10, 12, 16, 0.90) 100%);
+  }
+
+  .content {
+    position: absolute;
+    inset: 0;
+    padding: 0.75in;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .eyebrow {
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #fff;
+    opacity: 0.85;
+  }
+
+  .headline {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 76pt;
+    line-height: 0.94;
+    margin: 0 0 0.18in 0;
+    text-wrap: balance;
+  }
+
+  .subhead {
+    font-family: var(--serif);
+    font-size: 16pt;
+    line-height: 1.35;
+    max-width: 5.4in;
+    margin: 0 0 0.34in 0;
+    opacity: 0.94;
+  }
+
+  .details {
+    display: flex;
+    gap: 0.5in;
+    padding-top: 0.2in;
+    border-top: 1pt solid rgba(255, 255, 255, 0.35);
+  }
+  .detail-label {
+    font-size: 8.5pt;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 0.05in;
+  }
+  .detail-value { font-size: 13pt; font-weight: 700; }
+
+  .footer {
+    font-size: 9.5pt;
+    letter-spacing: 0.05em;
+    opacity: 0.75;
+  }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="art">
+      <img class="slot" src="{{image:background}}" alt="">
+    </div>
+    <div class="scrim"></div>
+
+    <div class="content">
+      <div class="eyebrow">{{eyebrow}}</div>
+
+      <div>
+        <h1 class="headline">{{headline}}</h1>
+        <p class="subhead">{{subhead}}</p>
+
+        <div class="details">
+          <div>
+            <div class="detail-label">Date</div>
+            <div class="detail-value">{{date}}</div>
+          </div>
+          <div>
+            <div class="detail-label">Time</div>
+            <div class="detail-value">{{time}}</div>
+          </div>
+          <div>
+            <div class="detail-label">Location</div>
+            <div class="detail-value">{{location}}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">{{footer}}</div>
+    </div>
+  </div>
+</body>
+</html>

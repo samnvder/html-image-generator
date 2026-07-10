@@ -1,0 +1,190 @@
+:root {
+  --bg: #f6f6f4;
+  --panel: #fff;
+  --ink: #1a1d23;
+  --soft: #656c78;
+  --line: #dfe1e5;
+  --accent: #8a2f2f;
+  --ok: #1f7a4d;
+  --warn: #b7791f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+header h1 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+
+.status { display: flex; align-items: center; gap: 0.4rem; font-size: 12px; color: var(--soft); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.dot.live { background: var(--ok); }
+.dot.dead { background: #c0392b; }
+
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  min-height: 0;
+}
+
+/* ---- form ---- */
+form {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 0.5rem 0 2rem;
+}
+section { padding: 0.9rem 1rem; border-bottom: 1px solid var(--line); }
+section h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--soft);
+  margin: 0 0 0.7rem;
+}
+
+label { display: block; margin-bottom: 0.6rem; font-size: 12px; color: var(--soft); }
+label:last-child { margin-bottom: 0; }
+
+input[type=text], input[type=number], input:not([type]), select, textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.22rem;
+  padding: 0.36rem 0.5rem;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid #b9c6de; outline-offset: -1px; border-color: #8fa4c4; }
+textarea { resize: vertical; min-height: 2.1rem; }
+
+.row { display: flex; gap: 0.6rem; align-items: flex-end; }
+.row > label { flex: 1; margin-bottom: 0; }
+
+.check { display: flex; align-items: center; gap: 0.4rem; font-size: 13px; color: var(--ink); }
+.check input { width: auto; margin: 0; }
+
+.hint { font-size: 11.5px; color: var(--soft); margin: 0 0 0.6rem; line-height: 1.45; }
+code { font: 11.5px ui-monospace, "Cascadia Code", monospace; background: #f0f0ee; padding: 0 3px; border-radius: 3px; }
+
+/* ---- the guard ---- */
+.guard { background: #fffaf5; border-left: 3px solid var(--accent); }
+.guard h2 { color: var(--accent); }
+.guard.satisfied { background: #f6fbf7; border-left-color: var(--ok); }
+.guard.satisfied h2 { color: var(--ok); }
+.req { font-size: 9.5px; background: var(--accent); color: #fff; padding: 1px 5px; border-radius: 3px; letter-spacing: 0.06em; vertical-align: 1px; }
+.guard.satisfied .req { background: var(--ok); }
+
+.radios { display: flex; gap: 0.5rem; }
+.radio { flex: 1; margin: 0; }
+.radio input { position: absolute; opacity: 0; }
+.radio span {
+  display: block;
+  padding: 0.5rem;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+.radio strong { display: block; font-size: 13px; color: var(--ink); }
+.radio em { display: block; font-style: normal; font-size: 11px; color: var(--soft); }
+.radio input:checked + span { border-color: var(--ok); background: #f0f9f3; box-shadow: inset 0 0 0 1px var(--ok); }
+.radio input:focus-visible + span { outline: 2px solid #b9c6de; }
+
+/* ---- preview ---- */
+.preview { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem 0.3rem;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0.44rem 1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+button:disabled { background: #d7d9dd; color: #8b9098; cursor: not-allowed; }
+button.ghost { background: #fff; color: var(--ink); border-color: var(--line); font-weight: 400; padding: 0.36rem 0.7rem; }
+button.ghost:hover { background: #f3f3f1; }
+
+.zoom { display: flex; align-items: center; gap: 0.5rem; font-size: 12px; color: var(--soft); }
+.zoom label { display: flex; align-items: center; gap: 0.45rem; margin: 0; }
+.zoom input { width: 110px; }
+
+.dest {
+  margin: 0;
+  padding: 0 1rem 0.5rem;
+  font: 11.5px ui-monospace, "Cascadia Code", monospace;
+  color: var(--soft);
+}
+.dest.bad { color: #c0392b; }
+
+.stage {
+  flex: 1;
+  overflow: auto;
+  background: #8b8e94;
+  padding: 1.5rem;
+  min-height: 0;
+}
+/* The canvas reserves real scroll space for the scaled iframe. */
+.canvas { position: relative; }
+#frame {
+  width: 900px;
+  height: 1200px;
+  border: 0;
+  background: transparent;
+  transform-origin: top left;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.result {
+  flex: none;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  padding: 0.7rem 1rem;
+  font-size: 12.5px;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+.result .file { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; }
+.result .fmt {
+  font: 10px ui-monospace, monospace;
+  background: var(--ink); color: #fff;
+  padding: 1px 5px; border-radius: 3px;
+}
+.result a { color: var(--ink); }
+.result .err { color: #c0392b; font-family: ui-monospace, monospace; }

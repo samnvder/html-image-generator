@@ -1,0 +1,33 @@
+{
+  "name": "html-image-generator",
+  "version": "0.1.0",
+  "description": "Deterministic print-ready image/PDF generator: LLM-authored HTML/CSS at exact physical dimensions, rendered by headless Chromium.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "render": "node scripts/render.js",
+    "test": "node scripts/selftest.js && node scripts/templatetest.js && node scripts/fonttest.js && node scripts/apptest.js",
+    "selftest": "node scripts/selftest.js",
+    "templatetest": "node scripts/templatetest.js",
+    "fonttest": "node scripts/fonttest.js",
+    "apptest": "node scripts/apptest.js",
+    "fetch-fonts": "node scripts/fetch-fonts.js"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "chokidar": "^4.0.0",
+    "fastify": "^5.0.0",
+    "open": "^10.1.0",
+    "pagedjs": "^0.4.3",
+    "puppeteer": "^24.0.0",
+    "sharp": "^0.34.0"
+  },
+  "devDependencies": {
+    "pdfjs-dist": "^6.1.200"
+  }
+}

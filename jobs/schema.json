@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "jobs/schema.json",
+  "title": "Render job spec",
+  "description": "The saved, reproducible record of one generation. Written by the Question Guard (see GUARD.md) before any render. paperSize is REQUIRED and must be explicitly confirmed with the user — never silently defaulted.",
+  "type": "object",
+  "required": ["name", "project", "docType", "paperSize", "template"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Short job name, becomes the output filename slug. e.g. 'spring-menu-launch'"
+    },
+    "project": {
+      "type": "string",
+      "description": "Project or client name; becomes the first output folder segment. Free text — slugified and validated (no path traversal, no Windows reserved names)."
+    },
+    "docType": {
+      "type": "string",
+      "description": "Document type, singular. e.g. 'flyer', 'certificate', 'legal-form'. Pluralized to form the second output folder segment."
+    },
+    "paperSize": {
+      "type": "string",
+      "enum": ["letter", "legal"],
+      "description": "ALWAYS explicitly confirmed with the user. letter = 8.5x11in, legal = 8.5x14in."
+    },
+    "orientation": {
+      "type": "string",
+      "enum": ["portrait", "landscape"],
+      "default": "portrait"
+    },
+    "outputs": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["pdf", "png"] },
+      "default": ["pdf"],
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "PDF is the authoritative print output (vector). PNG is a convenience raster deliverable."
+    },
+    "dpi": {
+      "type": "integer",
+      "minimum": 72,
+      "maximum": 1200,
+      "default": 300,
+      "description": "PNG resolution. deviceScaleFactor = dpi/96; sharp stamps the pHYs chunk."
+    },
+    "colorIntent": {
+      "type": "string",
+      "enum": ["rgb", "cmyk"],
+      "default": "rgb",
+      "description": "cmyk triggers the optional Ghostscript press post-step (Phase 4); requires Ghostscript installed."
+    },
+    "margin": {
+      "type": "string",
+      "default": "0.5in",
+      "description": "CSS margin for @page, e.g. '0.5in' or '1in 0.75in'. Use '0' for full-bleed designs."
+    },
+    "bleed": {
+      "type": "string",
+      "default": "0",
+      "description": "Bleed size, e.g. '0.125in'. Non-zero routes the render through Paged.js (no browser supports @page bleed natively)."
+    },
+    "cropMarks": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw crop marks. Routes through Paged.js."
+    },
+    "template": {
+      "type": "string",
+      "description": "Template file path relative to templates/, e.g. 'poster-letter.html'."
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Values substituted into the template's {{placeholder}} fields."
+    },
+    "fonts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Font family names from fonts/manifest.json this job uses (informational in v1; templates declare @font-face)."
+    },
+    "imageSlots": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Map of slot name -> image path (relative to project root) filling the template's art zones."
+    },
+    "variants": {
+      "type": "array",
+      "items": { "type": "object" },
+      "default": [],
+      "description": "Optional list of content overrides; each produces an additional render. Auto-open is skipped for batches."
+    }
+  }
+}

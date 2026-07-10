@@ -1,0 +1,28 @@
+{
+  "$schema": "./schema.json",
+  "name": "completion-award",
+  "project": "South End",
+  "docType": "certificate",
+  "paperSize": "letter",
+  "orientation": "landscape",
+  "outputs": ["pdf"],
+  "margin": "0",
+  "template": "certificate-letter.html",
+  "fonts": ["Playfair Display", "Source Serif 4", "Inter"],
+  "imageSlots": {
+    "seal": "/assets/placeholder-seal.png"
+  },
+  "content": {
+    "title": "Certificate of Completion",
+    "subtitle": "Culinary Apprenticeship Program",
+    "recipient": "Marisol Trevino",
+    "citation": "For the successful completion of two thousand hours of supervised practice, demonstrated mastery of the classical stations, and sustained excellence in the craft of the kitchen.",
+    "signatory1": "Daniel Okafor",
+    "role1": "Executive Chef",
+    "signatory2": "Hannah Reyes",
+    "role2": "Program Director"
+  },
+  "variants": [
+    { "name": "completion-award-2", "content": { "title": "Certificate of Completion", "subtitle": "Culinary Apprenticeship Program", "recipient": "Jonathan Whitfield-Brennan", "citation": "For the successful completion of two thousand hours of supervised practice, demonstrated mastery of the classical stations, and sustained excellence in the craft of the kitchen.", "signatory1": "Daniel Okafor", "role1": "Executive Chef", "signatory2": "Hannah Reyes", "role2": "Program Director" } }
+  ]
+}

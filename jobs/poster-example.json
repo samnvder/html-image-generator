@@ -1,0 +1,25 @@
+{
+  "$schema": "./schema.json",
+  "name": "spring-menu-launch",
+  "project": "South End",
+  "docType": "poster",
+  "paperSize": "letter",
+  "orientation": "portrait",
+  "outputs": ["pdf", "png"],
+  "dpi": 300,
+  "margin": "0",
+  "template": "poster-letter.html",
+  "fonts": ["Playfair Display", "Source Serif 4", "Inter"],
+  "imageSlots": {
+    "background": "/assets/placeholder-background.png"
+  },
+  "content": {
+    "eyebrow": "South End Kitchen",
+    "headline": "Spring Menu Launch",
+    "subhead": "Six new plates built around what the farmers had this week. One night only, family style, at the long table.",
+    "date": "April 18",
+    "time": "6:30 PM",
+    "location": "412 Mill Street",
+    "footer": "Reservations at southendkitchen.example · Seats 24"
+  }
+}
